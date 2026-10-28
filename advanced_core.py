@@ -401,15 +401,25 @@ async def measure_tls_handshake(host, port=443, timeout=3.0):
     """Measure TLS handshake time for a given host."""
     try:
         import ssl
-        start = time.perf_counter()
         context = ssl.create_default_context()
-        loop = asyncio.get_running_loop()
-        reader, writer = await loop.sock_connect(host, port)
-        # TLS handshake happens during connect
+        start = time.perf_counter()
+        # open_connection resolves the hostname itself and performs the TLS handshake.
+        # server_hostname must stay the original hostname (not an IP) so SNI and
+        # certificate verification match the certificate presented by the server.
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port, ssl=context, server_hostname=host),
+            timeout=timeout,
+        )
+        # Force the handshake to complete before stopping the clock.
+        await writer.drain()
         elapsed = (time.perf_counter() - start) * 1000
         writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
         return elapsed, True
-    except:
+    except Exception:
         return None, False
 
 # ---- NEW: Server region detection ----
@@ -1058,7 +1068,10 @@ def is_shizuku_running():
     """Detects whether the Shizuku privileged-API process is currently alive, using a plain
     `pgrep -f` process-table lookup instead of any Android API call or broadcast intent.
     Returns True only if pgrep's output is a numeric PID."""
-    raw = run_shizuku_cmd('pgrep -f "moe.shizuku.privileged.api"')
+    # Keep the pattern unquoted: rish runs this through a shell, but the non-rish
+    # fallback runs it as raw argv, where literal quotes would become part of the
+    # pattern and never match. Unquoted works in both paths.
+    raw = run_shizuku_cmd("pgrep -f moe.shizuku.privileged.api")
     pid_str = raw.strip().splitlines()[0].strip() if raw and raw.strip() else ""
     return pid_str.isdigit()
 
@@ -1097,14 +1110,18 @@ def find_golden_mtu():
     return 1452
 
 def detect_active_interface():
-    """Detects the current default-route interface via `ip route show | grep default`, which is
-    more consistently supported across Android ip/toybox builds than `ip route get`. Works for a
+    """Detects the current default-route interface from `ip route show`, which is more
+    consistently supported across Android ip/toybox builds than `ip route get`. Works for a
     WireGuard/VPN TUN tunnel as well as the raw cellular radio interface."""
-    raw = run_shizuku_cmd("ip route show | grep default")
-    if not raw:
+    # Avoid relying on a `| grep` pipe (the non-rish fallback runs argv without a
+    # shell, where the pipe would not execute). Filter the output in Python instead.
+    raw = run_shizuku_cmd("ip route show")
+    default_line = next((ln for ln in raw.splitlines() if ln.strip().startswith("default")), "")
+    if not default_line:
         raw = run_shizuku_cmd("ip route show default")
+        default_line = raw
     # ---- OPTIMIZATION: Use pre-compiled regex ----
-    m = _RE_DEV.search(raw) if raw else None
+    m = _RE_DEV.search(default_line) if default_line else None
     return m.group(1) if m else None
 
 def is_vpn_interface(iface_name):
@@ -1327,11 +1344,16 @@ async def udp_ping(host, port=37015, count=3, timeout=1.5):
                 data = await asyncio.wait_for(loop.sock_recvfrom(sock, 512), timeout=timeout)
                 end_time = time.perf_counter()
                 durations.append((end_time - start_time) * 1000)
-            except:
+            except Exception:
                 packet_loss += 1
             await asyncio.sleep(0.02)
     finally:
-        pass
+        # Always release the socket (prevents file-descriptor leaks across calls)
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
     if not durations:
         return None, 100.0, 0.0
@@ -1697,16 +1719,16 @@ async def async_ping_dns_core(ip_address, port=53, count=3):
     packet_loss = 0
     # Build DNS query for the target (was using hardcoded google.com packet)
     packet = _build_dns_query("google.com")  # Neutral query all servers should answer
-    # ---- OPTIMIZATION: Reuse a single socket for all queries (connectionless UDP) ----
-    loop = asyncio.get_running_loop()
 
-        # ---- OPTIMIZATION: Use a single timeout for the entire batch instead of per-packet ----
-        batch_deadline = time.monotonic() + (count * 2.0) + 2.0
+    # ---- OPTIMIZATION: Use a single timeout for the entire batch instead of per-packet ----
+    batch_deadline = time.monotonic() + (count * 2.0) + 2.0
 
+    with _profiler.time("async_ping_dns_core"):
         for _ in range(count):
             if time.monotonic() > batch_deadline:
                 packet_loss += (count - len(durations))
                 break
+            qs = None
             try:
                 start_time = time.perf_counter()
                 # Fresh blocking socket per query - much more reliable
@@ -1714,16 +1736,18 @@ async def async_ping_dns_core(ip_address, port=53, count=3):
                 qs.settimeout(1.5)
                 qs.sendto(packet, (ip_address, port))
                 data, _ = qs.recvfrom(512)
-                qs.close()
                 end_time = time.perf_counter()
                 durations.append((end_time - start_time) * 1000)
-                get_dns_breaker(ip_address).record_success()
-            except:
+                breaker.record_success()
+            except Exception:
                 packet_loss += 1
-                get_dns_breaker(ip_address).record_failure()
+                breaker.record_failure()
+            finally:
+                # Always release the socket, even on timeout/error (prevents FD leaks
+                # that eventually break all subsequent pings)
+                if qs is not None:
+                    qs.close()
             await asyncio.sleep(0.05)
-    finally:
-        pass
 
     if not durations:
         return 9999.0, 100.0, 999.0
