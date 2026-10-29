@@ -2982,7 +2982,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
   </aside>
 
   <!-- ---------- HERO / MASCOT ---------- -->
-  <section class="hero">
+  <section class="hero" id="hero">
+    <button class="hero-toggle" id="hero-toggle" aria-label="collapse banner" aria-expanded="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <div class="hero-mascot">
       <!-- chibi console-operator mascot (inline SVG, offline-safe) -->
       <svg viewBox="0 0 240 240" class="mascot" role="img" aria-label="console mascot">
@@ -3078,7 +3081,19 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
-  <main class="grid">
+  <!-- ---------- DOCK TOOLBAR ---------- -->
+  <div class="dock-bar" id="dock-bar">
+    <div class="dock-left">
+      <span class="dock-title">control deck</span>
+      <span class="dock-count" id="dock-count"></span>
+    </div>
+    <div class="dock-actions">
+      <button class="dock-btn" id="dock-expand">expand all</button>
+      <button class="dock-btn" id="dock-collapse">collapse all</button>
+    </div>
+  </div>
+
+  <main class="grid" id="grid">
     <!-- ---------- 00 IMPORT ---------- -->
     <section class="panel span-2 accent-violet" id="panel-import">
       <div class="panel-head">
@@ -3489,6 +3504,15 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
   </main>
+
+  <!-- ---------- FOCUS OVERLAY (one panel, full screen) ---------- -->
+  <div class="focus-backdrop" id="focus-backdrop" hidden></div>
+  <div class="focus-host" id="focus-host" hidden aria-hidden="true">
+    <div class="focus-frame">
+      <button class="focus-close" id="focus-close" aria-label="close focused panel">✕</button>
+      <div class="focus-slot" id="focus-slot"></div>
+    </div>
+  </div>
 
   <footer class="footer">
     <span>NEXUS DNS</span><span class="dot">•</span>
@@ -4140,6 +4164,131 @@ select.sel[multiple] { min-height: 92px; padding: 6px; }
 select.sel[multiple] option { padding: 3px 6px; border-radius: 6px; }
 select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 28%, transparent); color: var(--ink); }
 .tool-out .dim { color: var(--dim); }
+
+/* ============================================================
+   COLLAPSIBLE DOCK PANELS (round 10)
+   Every section is a self-contained card whose header toggles the
+   body open/closed, so the user sees and controls everything in one
+   place without a long scrolling page. Any card can be popped into a
+   full-screen "focus" overlay.
+   ============================================================ */
+.panel { display: flex; flex-direction: column; }
+
+/* the header is the click target that opens/closes the card */
+.panel-head {
+  margin-bottom: 0; cursor: pointer; user-select: none;
+  border-radius: 10px; padding: 4px 2px;
+  transition: background .15s;
+}
+.panel-head:hover { background: rgba(255,255,255,0.035); }
+.panel-head h2 { flex: 1; min-width: 0; }
+.panel-head .head-actions { cursor: default; }
+
+/* collapse chevron + focus button live in a small control cluster */
+.head-tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.ico-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--dim);
+  transition: color .15s, border-color .15s, background .15s, transform .18s;
+}
+.ico-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
+.ico-btn svg { width: 15px; height: 15px; }
+.chev { transition: transform .22s ease; }
+.panel.collapsed .chev { transform: rotate(-90deg); }
+
+/* the body collapses smoothly via grid rows (grows to content height) */
+.panel-body {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows .3s cubic-bezier(.2,.8,.2,1), opacity .22s ease, margin-top .22s ease;
+  opacity: 1; margin-top: 14px;
+}
+.panel-body > .panel-body-inner { overflow: hidden; min-height: 0; }
+.panel.collapsed .panel-body { grid-template-rows: 0fr; opacity: 0; margin-top: 0; }
+.panel.collapsed { padding-bottom: 16px; }
+
+/* a slim summary line shows when collapsed */
+.panel-sub {
+  display: none; color: var(--dim); font-size: 12px; margin-top: 2px;
+  font-family: var(--mono);
+}
+.panel.collapsed .panel-sub { display: block; }
+
+/* ---- dock toolbar ---- */
+.dock-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  max-width: 1500px; margin: 18px auto 0; padding: 8px 26px;
+}
+.dock-left { display: flex; align-items: baseline; gap: 10px; }
+.dock-title {
+  font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--dim);
+}
+.dock-count { font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
+.dock-actions { display: flex; gap: 8px; }
+.dock-btn {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
+  color: var(--dim); background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.dock-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
+
+/* ---- hero collapse ---- */
+.hero { position: relative; }
+.hero-toggle {
+  position: absolute; top: 12px; right: 14px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--dim);
+  transition: color .15s, transform .2s, border-color .15s;
+}
+.hero-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+.hero-toggle svg { transition: transform .25s ease; }
+.hero.collapsed .hero-toggle svg { transform: rotate(180deg); }
+.hero-inner { display: flex; align-items: center; gap: 26px; width: 100%; }
+.hero.collapsed .hero-inner { display: none; }
+.hero.collapsed { padding: 14px 26px; }
+.hero.collapsed::before {
+  content: "NEXUS DNS · command deck"; font-family: var(--display); font-weight: 700;
+  font-size: 13px; letter-spacing: 1px; color: var(--dim);
+}
+
+/* ---- focus overlay (one panel, full screen) ---- */
+.focus-backdrop {
+  position: fixed; inset: 0; z-index: 80; background: rgba(4,3,10,0.72);
+  backdrop-filter: blur(4px); opacity: 0; transition: opacity .22s;
+}
+.focus-backdrop.show { opacity: 1; }
+.focus-host {
+  position: fixed; inset: 0; z-index: 81; display: flex; align-items: center; justify-content: center;
+  padding: 22px;
+}
+.focus-frame {
+  position: relative; width: min(1100px, 96vw); max-height: 92vh; overflow: auto;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(20,16,38,0.99), rgba(11,8,24,0.99));
+  box-shadow: 0 40px 120px -30px rgba(0,0,0,0.9);
+  padding: 4px;
+  animation: focusIn .24s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes focusIn { from { transform: translateY(14px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+.focus-close {
+  position: absolute; top: 12px; right: 12px; z-index: 2;
+  width: 32px; height: 32px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(10,8,20,0.8); color: var(--dim); font-size: 15px;
+}
+.focus-close:hover { color: var(--ink); border-color: var(--line-strong); }
+.focus-slot > .panel { animation: none; opacity: 1; transform: none; border: none; background: transparent; box-shadow: none; }
+.focus-slot > .panel::before { display: none; }
+.focus-slot .panel-head { cursor: default; }
+.focus-slot .panel.collapsed .panel-body { grid-template-rows: 1fr; opacity: 1; margin-top: 14px; }
+
+@media (max-width: 900px) {
+  .dock-bar { padding: 8px 16px; flex-wrap: wrap; gap: 8px; }
+  .focus-host { padding: 10px; }
+  .focus-frame { max-height: 96vh; }
+}
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -4204,12 +4353,169 @@ _WEB_APP_JS = r"""/* ===========================================================
   backdrop.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
+  /* ============================================================
+     COLLAPSIBLE DOCK — every section is an open/close card
+     ============================================================ */
+  const PANEL_KEY = "nexus_panel_state";
+  const HERO_KEY = "nexus_hero_collapsed";
+  const dockPanels = [...document.querySelectorAll("main .panel")];
+
+  const CHEV = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const EXPAND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function readPanelState() {
+    try { return JSON.parse(localStorage.getItem(PANEL_KEY) || "null"); } catch { return null; }
+  }
+  function writePanelState() {
+    const st = {};
+    dockPanels.forEach((p) => { st[p.id] = p.classList.contains("collapsed") ? 0 : 1; });
+    try { localStorage.setItem(PANEL_KEY, JSON.stringify(st)); } catch {}
+  }
+
+  // Restructure each card: wrap its body, then add focus + collapse controls.
+  dockPanels.forEach((panel) => {
+    const head = panel.querySelector(".panel-head");
+    if (!head) return;
+
+    const body = el("div", "panel-body");
+    const bodyInner = el("div", "panel-body-inner");
+    let n = head.nextSibling;
+    while (n) { const next = n.nextSibling; bodyInner.appendChild(n); n = next; }
+    body.appendChild(bodyInner);
+    panel.appendChild(body);
+
+    const sub = el("div", "panel-sub");
+    const hint = panel.querySelector(".hint");
+    sub.textContent = hint ? hint.textContent.trim() : "";
+    panel.appendChild(sub);
+
+    const tools = el("div", "head-tools");
+    const focusBtn = el("button", "ico-btn focus-btn");
+    focusBtn.type = "button"; focusBtn.title = "focus this panel";
+    focusBtn.setAttribute("aria-label", "focus panel");
+    focusBtn.innerHTML = EXPAND_ICON;
+    focusBtn.addEventListener("click", (e) => { e.stopPropagation(); openFocus(panel); });
+
+    const chevBtn = el("button", "ico-btn chev-btn");
+    chevBtn.type = "button"; chevBtn.title = "expand / collapse";
+    chevBtn.setAttribute("aria-label", "toggle panel");
+    chevBtn.innerHTML = CHEV;
+    chevBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePanel(panel); });
+
+    tools.append(focusBtn, chevBtn);
+    head.appendChild(tools);
+
+    head.addEventListener("click", (e) => {
+      if (e.target.closest(".head-actions") || e.target.closest(".head-tools")) return;
+      togglePanel(panel);
+    });
+  });
+
+  function togglePanel(panel, force) {
+    if (!panel) return;
+    const collapsed = force != null ? force : !panel.classList.contains("collapsed");
+    panel.classList.toggle("collapsed", collapsed);
+    const head = panel.querySelector(".panel-head");
+    if (head) head.setAttribute("aria-expanded", String(!collapsed));
+    writePanelState();
+    updateDockCount();
+  }
+
+  function setAllPanels(collapsed) {
+    dockPanels.forEach((p) => {
+      p.classList.toggle("collapsed", collapsed);
+      const head = p.querySelector(".panel-head");
+      if (head) head.setAttribute("aria-expanded", String(!collapsed));
+    });
+    writePanelState();
+    updateDockCount();
+  }
+
+  function updateDockCount() {
+    const open = dockPanels.filter((p) => !p.classList.contains("collapsed")).length;
+    const c = $("dock-count");
+    if (c) c.textContent = `${open} / ${dockPanels.length} open`;
+  }
+
+  // Restore the saved layout; on first run keep only the scanner open so the
+  // deck starts minimal and the user opens what they need.
+  (function restorePanelState() {
+    const st = readPanelState();
+    dockPanels.forEach((p) => {
+      const collapsed = st && p.id in st ? !st[p.id] : p.id !== "panel-scanner";
+      p.classList.toggle("collapsed", collapsed);
+      const head = p.querySelector(".panel-head");
+      if (head) head.setAttribute("aria-expanded", String(!collapsed));
+    });
+    updateDockCount();
+  })();
+
+  $("dock-expand").addEventListener("click", () => setAllPanels(false));
+  $("dock-collapse").addEventListener("click", () => setAllPanels(true));
+
+  /* ---- focus overlay: pop any card into one full-screen view ---- */
+  const focusHost = $("focus-host");
+  const focusBackdrop = $("focus-backdrop");
+  const focusSlot = $("focus-slot");
+  let focusedPanel = null;
+  let focusAnchor = null;
+
+  function openFocus(panel) {
+    if (focusedPanel || !panel) return;
+    focusedPanel = panel;
+    togglePanel(panel, false);            // a focused card is always expanded
+    focusAnchor = document.createComment("panel-anchor");
+    panel.parentNode.insertBefore(focusAnchor, panel);
+    focusSlot.appendChild(panel);
+    focusHost.hidden = false;
+    focusBackdrop.hidden = false;
+    requestAnimationFrame(() => focusBackdrop.classList.add("show"));
+    focusHost.setAttribute("aria-hidden", "false");
+    closeDrawer();
+  }
+  function closeFocus() {
+    if (!focusedPanel) return;
+    const panel = focusedPanel;
+    focusedPanel = null;
+    focusBackdrop.classList.remove("show");
+    focusHost.setAttribute("aria-hidden", "true");
+    setTimeout(() => {
+      focusHost.hidden = true;
+      focusBackdrop.hidden = true;
+    }, 220);
+    if (focusAnchor && focusAnchor.parentNode) {
+      focusAnchor.parentNode.insertBefore(panel, focusAnchor);
+      focusAnchor.remove();
+    }
+    focusAnchor = null;
+  }
+  $("focus-close").addEventListener("click", closeFocus);
+  focusBackdrop.addEventListener("click", closeFocus);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeFocus(); });
+
+  /* ---- collapsible hero banner ---- */
+  const hero = $("hero");
+  const heroInner = el("div", "hero-inner");
+  [...hero.children].forEach((c) => {
+    if (!c.classList.contains("hero-toggle")) heroInner.appendChild(c);
+  });
+  hero.appendChild(heroInner);
+  try { hero.classList.toggle("collapsed", localStorage.getItem(HERO_KEY) === "1"); } catch {}
+  $("hero-toggle").addEventListener("click", () => {
+    const collapsed = hero.classList.toggle("collapsed");
+    $("hero-toggle").setAttribute("aria-expanded", String(!collapsed));
+    try { localStorage.setItem(HERO_KEY, collapsed ? "1" : "0"); } catch {}
+  });
+
+  /* ---- nav drawer: jump to a section and open it ---- */
   const navLinks = [...document.querySelectorAll("#drawer-nav a")];
   navLinks.forEach((a) => a.addEventListener("click", (e) => {
     e.preventDefault();
     const target = document.getElementById(a.dataset.target);
     closeDrawer();
     if (!target) return;
+    if (focusedPanel && focusedPanel !== target) closeFocus();
+    togglePanel(target, false);
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     target.classList.remove("flash");
     void target.offsetWidth;
@@ -4224,7 +4530,7 @@ _WEB_APP_JS = r"""/* ===========================================================
       navLinks.forEach((a) => a.classList.toggle("active", a.dataset.target === id));
     });
   }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
-  document.querySelectorAll("main .panel").forEach((p) => sectionObserver.observe(p));
+  dockPanels.forEach((p) => sectionObserver.observe(p));
 
   function statusPill(status) {
     const s = el("span", "pill " + status);
@@ -5844,7 +6150,7 @@ _WEB_AI_KEY = ""
 # Identify the console honestly to OpenRouter (and its WAF).
 _WEB_AI_TITLE = "NEXUS DNS Console"
 _WEB_AI_REFERER = "https://github.com/Onlyicing1/Dns"
-_WEB_UA = "NEXUS-DNS-Console/3.2 (+https://github.com/Onlyicing1/Dns)"
+_WEB_UA = "NEXUS-DNS-Console/3.3 (+https://github.com/Onlyicing1/Dns)"
 
 
 def _web_ai_analyze(api_key, model, prompt):
@@ -6028,7 +6334,7 @@ def _web_ai_models(force=False):
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.2"
+    server_version = "DnsConsole/3.3"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -6073,7 +6379,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.2"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.3"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
