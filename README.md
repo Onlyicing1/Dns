@@ -41,12 +41,25 @@ will come up on your LAN automatically.
 
 ### What the dashboard does
 
-- **Scanner** — ping any DNS servers (one per line or comma separated) and watch
-  results stream in live with latency bars, jitter, loss and status.
-- **Stability** — deterministic 0–100 ranking built up across every scan this session.
-- **Saved DNS** — add/remove entries in your DNS list (shared with the CLI).
-- **Probe Lab** — DNS resolve, TCP ping, TLS handshake, HTTP GET and MTU advice.
-- **Device** — a read-only Shizuku snapshot (operator, network type, active interface, VPN).
+- **Bulk Scanner** — paste thousands of DNS servers (one per line or comma
+  separated). They are scanned in parallel with a thread pool; tune **workers**
+  (concurrency) and **chunk** (how often progress is reported). Results stream in
+  live with latency bars, jitter, loss and status. Filter, show alive-only, and
+  **export CSV**.
+- **Stability** — deterministic 0–100 ranking built up across every scan and
+  **saved to disk** (`~/.dns_console_history.json`) so it keeps building between
+  sessions. Clear it any time.
+- **Saved DNS** — add one, or paste many at once. Persisted to `~/dns_list.txt`
+  and shared with the CLI's DNS manager.
+- **Probe Lab** — DNS resolve, TCP ping, TLS handshake, HTTP GET, **game
+  latency** (protocol-aware, per profile) and MTU advice.
+- **Network · VPN** — public egress IP, country, ISP, active interface, VPN
+  tunnel flag and MTU — check what your VPN exposes.
+- **Device** — a read-only Shizuku snapshot (operator, network type, interface, VPN).
+- **APN Benchmark** — lists carrier APNs; benchmarking switches the preferred
+  APN, tests each, then restores the original (Shizuku; confirm-gated).
+- **Game Profiles** — add/remove profiles (shared with the CLI).
+- **Diagnosis** — reference-host + gateway reachability with a quality rating.
 
 Everything runs on your machine; no external services, no dependencies beyond
 the Python standard library.
