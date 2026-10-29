@@ -2926,41 +2926,43 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0714" />
-  <title>NEXUS DNS // console</title>
+  <meta name="theme-color" content="#0a0b14" />
+  <title>DNS Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
-  <div class="aurora" aria-hidden="true"></div>
-  <div class="grid-bg" aria-hidden="true"></div>
-  <div class="scanlines" aria-hidden="true"></div>
-  <div class="sparkles" aria-hidden="true"></div>
+  <a class="skip-link" href="#deck">skip to dashboard</a>
 
+  <div class="bg-layer" aria-hidden="true">
+    <span class="bg-orb o1"></span>
+    <span class="bg-orb o2"></span>
+    <span class="bg-grid"></span>
+  </div>
+
+  <!-- ---------- TOP BAR ---------- -->
   <header class="topbar">
-    <div class="brand">
-      <button class="burger" id="burger" aria-label="open menu" aria-expanded="false">
+    <div class="tb-left">
+      <button class="icon-btn burger" id="burger" aria-label="open menu" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
-      <span class="pulse-dot" id="conn-dot"></span>
-      <h1>NEXUS<span class="thin">DNS</span></h1>
-      <span class="tag">local node</span>
+      <span class="brand"><i class="brand-dot"></i>DNS<span>Console</span></span>
     </div>
-    <div class="topbar-right">
-      <div class="clock" id="clock">--:--:--</div>
-      <div class="status" id="conn-text">connecting…</div>
-      <div class="status host" id="footer-port">—</div>
+    <div class="tb-right">
+      <span class="conn"><i class="conn-dot" id="conn-dot"></i><em id="conn-text">connecting…</em></span>
+      <span class="clock" id="clock">--:--:--</span>
+      <span class="host" id="footer-port">—</span>
     </div>
   </header>
 
   <!-- ---------- NAV DRAWER ---------- -->
-  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <div class="scrim" id="drawer-backdrop" hidden></div>
   <aside class="drawer" id="drawer" aria-label="section navigation" aria-hidden="true">
     <div class="drawer-head">
       <span class="drawer-title">Sections</span>
-      <button class="drawer-close" id="drawer-close" aria-label="close menu">✕</button>
+      <button class="icon-btn" id="drawer-close" aria-label="close menu">✕</button>
     </div>
     <nav class="drawer-nav" id="drawer-nav">
       <a data-target="panel-import"     href="#panel-import"><span class="di">00</span> Import DNS list</a>
@@ -2977,34 +2979,31 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <a data-target="panel-ai"         href="#panel-ai"><span class="di">11</span> AI Analysis</a>
       <a data-target="panel-appearance" href="#panel-appearance"><span class="di">12</span> Appearance</a>
     </nav>
-    <div class="drawer-foot">
-      <span id="drawer-port">—</span>
-    </div>
   </aside>
 
-  <!-- ---------- DOCK TOOLBAR ---------- -->
-  <div class="dock-bar" id="dock-bar">
-    <div class="dock-left">
-      <span class="dock-title">control deck</span>
-      <span class="dock-count" id="dock-count"></span>
-    </div>
-    <div class="dock-actions">
-      <button class="dock-btn" id="dock-expand">expand all</button>
-      <button class="dock-btn" id="dock-collapse">collapse all</button>
+  <!-- ---------- CONTROL BAR ---------- -->
+  <div class="controlbar" id="dock-bar">
+    <span class="cb-title">dashboard</span>
+    <span class="cb-count" id="dock-count"></span>
+    <div class="cb-actions">
+      <button class="btn ghost" id="dock-expand">expand all</button>
+      <button class="btn ghost" id="dock-collapse">collapse all</button>
     </div>
   </div>
 
-  <main class="grid" id="grid">
-    <!-- ---------- 00 IMPORT ---------- -->
-    <section class="panel span-2 accent-violet" id="panel-import">
+  <!-- ---------- DASHBOARD ---------- -->
+  <main class="deck" id="deck" aria-label="dashboard">
+
+    <!-- 00 IMPORT -->
+    <section class="panel g4 accent-violet" id="panel-import">
       <div class="panel-head">
         <h2><span class="idx">00</span> Import DNS list</h2>
         <div class="head-actions">
-          <button class="ghost" id="import-save">save to list</button>
-          <button class="ghost" id="import-scan">scan now</button>
+          <button class="btn ghost" id="import-save">save to list</button>
+          <button class="btn ghost" id="import-scan">scan now</button>
         </div>
       </div>
-      <p class="hint">Drop any file — .txt, .csv, .json, .log, .md, .xml, .html, .zip, .gz, .xlsx, .docx and more. Every IPv4 address (and known resolver hostname) is detected.</p>
+      <p class="hint">Drop any file — .txt, .csv, .json, .log, .md, .xml, .html, .zip, .gz, .xlsx, .docx. Every IPv4 address (and known resolver) is detected.</p>
       <div class="drop" id="drop">
         <input type="file" id="file" hidden multiple />
         <div class="drop-icon">⤓</div>
@@ -3013,32 +3012,30 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
       <textarea id="paste-import" class="bulk" spellcheck="false"
         placeholder="…or paste anything containing DNS servers (text, config dumps, logs)"></textarea>
-      <button class="ghost wide" id="import-paste">extract from pasted text</button>
-      <div class="import-out" id="import-out">No file imported yet.</div>
+      <button class="btn ghost wide" id="import-paste">extract from pasted text</button>
+      <div class="outbox" id="import-out">No file imported yet.</div>
     </section>
 
-    <!-- ---------- 01 SCANNER ---------- -->
-    <section class="panel span-2 accent-cyan" id="panel-scanner">
+    <!-- 01 SCANNER -->
+    <section class="panel g4 accent-cyan" id="panel-scanner">
       <div class="panel-head">
         <h2><span class="idx">01</span> Bulk Scanner</h2>
         <div class="head-actions">
-          <button class="ghost" id="use-list" title="Load your saved DNS list">use saved list</button>
-          <button class="ghost" id="export-csv">export CSV</button>
-          <button class="ghost" id="clear-targets">clear</button>
+          <button class="btn ghost" id="use-list" title="Load your saved DNS list">use saved list</button>
+          <button class="btn ghost" id="export-csv">export CSV</button>
+          <button class="btn ghost" id="clear-targets">clear</button>
         </div>
       </div>
 
-      <div class="target-input">
-        <textarea id="targets" spellcheck="false"
-          placeholder="Paste DNS servers — one per line or comma separated&#10;8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, dns.google&#10;Handles thousands of entries."></textarea>
-      </div>
+      <textarea id="targets" class="bulk targets" spellcheck="false"
+        placeholder="Paste DNS servers — one per line or comma separated&#10;8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, dns.google&#10;Handles thousands of entries."></textarea>
 
       <div class="controls">
         <label class="field"><span>packets</span><input type="number" id="count" min="1" max="10" value="3" /></label>
         <label class="field"><span>workers</span><input type="number" id="workers" min="1" max="512" value="64" /></label>
         <label class="field"><span>chunk</span><input type="number" id="chunk" min="1" max="5000" value="100" /></label>
         <label class="field"><span>protocol</span>
-          <select id="proto" class="sel sm">
+          <select id="proto" class="sel">
             <option value="udp">UDP (53)</option>
             <option value="tcp">TCP (53)</option>
             <option value="tls">TLS / DoT (853)</option>
@@ -3048,12 +3045,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         </label>
         <label class="field"><span>timeout s</span><input type="number" id="timeout" min="0.3" max="10" step="0.1" value="1.5" /></label>
         <label class="field"><span>probe target</span>
-          <select id="probe" class="sel sm">
-            <option value="google">google.com</option>
-          </select>
+          <select id="probe" class="sel"><option value="google">google.com</option></select>
         </label>
         <label class="chk"><input type="checkbox" id="geo" /> geo-locate</label>
-        <button class="primary" id="run"><span class="run-label">RUN SCAN</span></button>
+        <button class="btn primary" id="run"><span class="run-label">RUN SCAN</span></button>
       </div>
 
       <div class="progress-wrap">
@@ -3062,10 +3057,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
 
       <div class="metrics">
-        <div class="metric m-cyan"><span class="m-label">scanned</span><span class="m-val" id="stat-done">—</span></div>
-        <div class="metric m-green"><span class="m-label">alive</span><span class="m-val" id="stat-ok">—</span></div>
-        <div class="metric m-amber"><span class="m-label">best</span><span class="m-val" id="stat-best">—</span></div>
-        <div class="metric m-pink"><span class="m-label">rate /s</span><span class="m-val" id="stat-rate">—</span></div>
+        <div class="metric cyan"><span class="m-label">scanned</span><span class="m-val" id="stat-done">—</span></div>
+        <div class="metric green"><span class="m-label">alive</span><span class="m-val" id="stat-ok">—</span></div>
+        <div class="metric amber"><span class="m-label">best</span><span class="m-val" id="stat-best">—</span></div>
+        <div class="metric pink"><span class="m-label">rate /s</span><span class="m-val" id="stat-rate">—</span></div>
       </div>
 
       <div class="table-tools">
@@ -3074,7 +3069,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
 
       <div class="table-wrap">
-        <table class="results" id="results">
+        <table class="results">
           <thead>
             <tr><th>#</th><th>DNS Server</th><th>Location</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Proto</th><th>Status</th></tr>
           </thead>
@@ -3090,13 +3085,13 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- ---------- 02 AUTO-TEST ---------- -->
-    <section class="panel span-2 accent-amber" id="panel-autotest">
+    <!-- 02 AUTO-TEST -->
+    <section class="panel g4 accent-amber" id="panel-autotest">
       <div class="panel-head">
         <h2><span class="idx">02</span> Auto-Test <span class="badge" id="auto-state">idle</span></h2>
         <div class="head-actions">
-          <button class="primary small" id="auto-start"><span class="run-label">START</span></button>
-          <button class="ghost" id="auto-stop">stop</button>
+          <button class="btn primary small" id="auto-start"><span class="run-label">START</span></button>
+          <button class="btn ghost" id="auto-stop">stop</button>
         </div>
       </div>
       <p class="hint">Runs the scan on a timer, forever. Fully customizable — interval, protocol, packets, jitter/latency alert thresholds.</p>
@@ -3106,7 +3101,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <div class="with-unit"><input type="number" id="auto-interval" min="5" max="86400" value="60" /><em>s</em></div>
         </label>
         <label class="field"><span>protocol</span>
-          <select id="auto-proto" class="sel sm">
+          <select id="auto-proto" class="sel">
             <option value="udp">UDP (53)</option>
             <option value="tcp">TCP (53)</option>
             <option value="tls">TLS / DoT (853)</option>
@@ -3117,13 +3112,13 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <label class="field"><span>packets</span><input type="number" id="auto-count" min="1" max="10" value="3" /></label>
         <label class="field"><span>workers</span><input type="number" id="auto-workers" min="1" max="512" value="64" /></label>
         <label class="field"><span>source</span>
-          <select id="auto-source" class="sel sm">
+          <select id="auto-source" class="sel">
             <option value="targets">scanner box</option>
             <option value="list">saved DNS list</option>
           </select>
         </label>
         <label class="field"><span>cycles</span>
-          <select id="auto-cycles" class="sel sm">
+          <select id="auto-cycles" class="sel">
             <option value="0">forever</option>
             <option value="5">5</option>
             <option value="10">10</option>
@@ -3132,11 +3127,9 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           </select>
         </label>
         <label class="field"><span>probe target</span>
-          <select id="auto-probe" class="sel sm">
-            <option value="google">google.com</option>
-          </select>
+          <select id="auto-probe" class="sel"><option value="google">google.com</option></select>
         </label>
-        <label class="field"><span>chunk size</span><input type="number" id="auto-chunk" min="0" max="100000" value="0" title="0 = scan the whole list each cycle; otherwise test this many servers per cycle, rotating through the list" /></label>
+        <label class="field"><span>chunk size</span><input type="number" id="auto-chunk" min="0" max="100000" value="0" title="0 = scan the whole list each cycle; otherwise test this many per cycle, rotating through the list" /></label>
         <label class="chk"><input type="checkbox" id="auto-rotate" checked /> rotate through list</label>
         <label class="chk"><input type="checkbox" id="auto-geo" /> geo-locate</label>
       </div>
@@ -3163,53 +3156,53 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <div class="ring-label"><span id="auto-countdown">--</span><em id="auto-cycle-label">cycle 0</em></div>
         </div>
         <div class="auto-stats">
-          <div class="metric m-amber"><span class="m-label">next in</span><span class="m-val" id="auto-next">—</span></div>
-          <div class="metric m-cyan"><span class="m-label">cycles run</span><span class="m-val" id="auto-cycles-run">0</span></div>
-          <div class="metric m-green"><span class="m-label">best now</span><span class="m-val" id="auto-best">—</span></div>
-          <div class="metric m-pink"><span class="m-label">alerts</span><span class="m-val" id="auto-alert-count">0</span></div>
+          <div class="metric amber"><span class="m-label">next in</span><span class="m-val" id="auto-next">—</span></div>
+          <div class="metric cyan"><span class="m-label">cycles run</span><span class="m-val" id="auto-cycles-run">0</span></div>
+          <div class="metric green"><span class="m-label">best now</span><span class="m-val" id="auto-best">—</span></div>
+          <div class="metric pink"><span class="m-label">alerts</span><span class="m-val" id="auto-alert-count">0</span></div>
         </div>
       </div>
-      <div class="tool-out" id="auto-log">Auto-test idle. Set an interval and hit START.</div>
+      <div class="outbox" id="auto-log">Auto-test idle. Set an interval and hit START.</div>
     </section>
 
-    <!-- ---------- 03 STABILITY ---------- -->
-    <section class="panel accent-violet" id="panel-stability">
+    <!-- 03 STABILITY -->
+    <section class="panel g2 accent-violet" id="panel-stability">
       <div class="panel-head">
         <h2><span class="idx">03</span> Stability</h2>
         <div class="head-actions">
-          <button class="ghost" id="refresh-stab">refresh</button>
-          <button class="ghost" id="clear-history">clear</button>
+          <button class="btn ghost" id="refresh-stab">refresh</button>
+          <button class="btn ghost" id="clear-history">clear</button>
         </div>
       </div>
       <p class="hint">Ranked across every scan — saved between sessions.</p>
       <div class="stab-list" id="stab-list"><div class="empty-note">Run a scan to build history.</div></div>
     </section>
 
-    <!-- ---------- 03 SAVED DNS ---------- -->
-    <section class="panel accent-green" id="panel-list">
+    <!-- 04 SAVED DNS -->
+    <section class="panel g2 accent-green" id="panel-list">
       <div class="panel-head">
         <h2><span class="idx">04</span> Saved DNS <span class="badge" id="dns-count">0</span></h2>
-        <div class="head-actions"><button class="ghost" id="clear-dns">clear all</button></div>
+        <div class="head-actions"><button class="btn ghost" id="clear-dns">clear all</button></div>
       </div>
       <div class="add-row">
         <input type="text" id="new-dns" placeholder="add one e.g. 8.8.4.4" spellcheck="false" />
-        <button class="primary small" id="add-dns">add</button>
+        <button class="btn primary small" id="add-dns">add</button>
       </div>
       <textarea id="bulk-dns" class="bulk" spellcheck="false"
         placeholder="paste many at once (one per line) then ADD ALL"></textarea>
-      <button class="ghost wide" id="bulk-add">add all pasted</button>
-      <ul class="dns-list" id="dns-list"></ul>
+      <button class="btn ghost wide" id="bulk-add">add all pasted</button>
+      <ul class="list" id="dns-list"></ul>
     </section>
 
-    <!-- ---------- 04 PROBE LAB ---------- -->
-    <section class="panel accent-pink" id="panel-tools">
+    <!-- 05 PROBE LAB -->
+    <section class="panel g2 accent-pink" id="panel-tools">
       <div class="panel-head"><h2><span class="idx">05</span> Probe Lab</h2></div>
       <div class="tool-row">
         <input type="text" id="tool-host" placeholder="host / IP" spellcheck="false" value="1.1.1.1" />
       </div>
       <div class="tool-row">
         <label class="field"><span>probe targets (pick up to 3)</span>
-          <select id="tool-probe" class="sel sm" multiple size="4" title="Ctrl/Cmd-click or tap to select up to 3 game/CDN targets">
+          <select id="tool-probe" class="sel" multiple size="4" title="Ctrl/Cmd-click or tap to select up to 3 game/CDN targets">
             <option value="google">google.com</option>
           </select>
         </label>
@@ -3217,25 +3210,25 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <input type="text" id="tool-dns" placeholder="resolver IP e.g. 1.1.1.1" spellcheck="false" value="1.1.1.1" />
         </label>
       </div>
-      <div class="tool-btns">
-        <button class="chip c1" data-tool="resolve">DNS resolve</button>
-        <button class="chip c2" data-tool="tcp">TCP ping</button>
-        <button class="chip c3" data-tool="tls">TLS handshake</button>
-        <button class="chip c4" data-tool="http">HTTP GET</button>
-        <button class="chip c5" data-tool="game">Game latency</button>
-        <button class="chip c6" data-tool="mtu">MTU advice</button>
-        <button class="chip c7" data-tool="protocols">UDP / TCP / TLS</button>
-        <button class="chip c1" data-tool="dig">Dig targets</button>
+      <div class="chips">
+        <button class="chip" data-tool="resolve">DNS resolve</button>
+        <button class="chip" data-tool="tcp">TCP ping</button>
+        <button class="chip" data-tool="tls">TLS handshake</button>
+        <button class="chip" data-tool="http">HTTP GET</button>
+        <button class="chip" data-tool="game">Game latency</button>
+        <button class="chip" data-tool="mtu">MTU advice</button>
+        <button class="chip" data-tool="protocols">UDP / TCP / TLS</button>
+        <button class="chip" data-tool="dig">Dig targets</button>
       </div>
       <select id="tool-game" class="sel"></select>
-      <div class="tool-out" id="tool-out">Pick a probe to test a host.</div>
+      <div class="outbox" id="tool-out">Pick a probe to test a host.</div>
     </section>
 
-    <!-- ---------- 05 NETWORK / VPN ---------- -->
-    <section class="panel accent-amber" id="panel-network">
+    <!-- 06 NETWORK / VPN -->
+    <section class="panel g2 accent-amber" id="panel-network">
       <div class="panel-head">
         <h2><span class="idx">06</span> Network · VPN</h2>
-        <button class="ghost" id="refresh-network">refresh</button>
+        <button class="btn ghost" id="refresh-network">refresh</button>
       </div>
       <p class="hint">Public egress IP &amp; geo — check what your VPN exposes.</p>
       <div class="device-grid" id="network-grid">
@@ -3248,11 +3241,11 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- ---------- 06 DEVICE ---------- -->
-    <section class="panel accent-blue" id="panel-device">
+    <!-- 07 DEVICE -->
+    <section class="panel g4 accent-blue" id="panel-device">
       <div class="panel-head">
         <h2><span class="idx">07</span> Device</h2>
-        <button class="ghost" id="refresh-device">refresh</button>
+        <button class="btn ghost" id="refresh-device">refresh</button>
       </div>
       <p class="hint">Read-only Shizuku snapshot (getprop / ip route).</p>
       <div class="device-grid" id="device-grid">
@@ -3264,67 +3257,69 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- ---------- 07 APN BENCHMARK ---------- -->
-    <section class="panel accent-violet span-2" id="panel-apn">
+    <!-- 08 APN BENCHMARK -->
+    <section class="panel g2 accent-violet" id="panel-apn">
       <div class="panel-head">
         <h2><span class="idx">08</span> APN Benchmark</h2>
         <div class="head-actions">
-          <button class="ghost" id="refresh-apn">refresh</button>
-          <button class="ghost danger" id="apn-bench">run benchmark</button>
+          <button class="btn ghost" id="refresh-apn">refresh</button>
+          <button class="btn ghost danger" id="apn-bench">run benchmark</button>
         </div>
       </div>
       <p class="hint">Lists carrier APNs. Benchmarking switches the preferred APN, tests, then restores it (Shizuku).</p>
       <div class="apn-wrap">
-        <ul class="apn-list" id="apn-list"><li class="empty-note">load to see APN entries</li></ul>
-        <div class="tool-out" id="apn-out">Current preferred APN: —</div>
+        <ul class="list apn-list" id="apn-list"><li class="empty-note">load to see APN entries</li></ul>
+        <div class="outbox" id="apn-out">Current preferred APN: —</div>
       </div>
     </section>
 
-    <!-- ---------- 08 PROFILES ---------- -->
-    <section class="panel accent-green" id="panel-profiles">
+    <!-- 09 GAME PROFILES -->
+    <section class="panel g2 accent-green" id="panel-profiles">
       <div class="panel-head"><h2><span class="idx">09</span> Game Profiles</h2></div>
       <div class="add-row">
         <input type="text" id="prof-name" placeholder="name e.g. Valorant" spellcheck="false" />
         <input type="text" id="prof-host" placeholder="host" spellcheck="false" />
       </div>
-      <button class="ghost wide" id="prof-add">add profile</button>
-      <ul class="dns-list" id="prof-list"></ul>
+      <button class="btn ghost wide" id="prof-add">add profile</button>
+      <ul class="list" id="prof-list"></ul>
     </section>
 
-    <!-- ---------- 09 DIAGNOSIS ---------- -->
-    <section class="panel accent-cyan" id="panel-diagnosis">
+    <!-- 10 DIAGNOSIS -->
+    <section class="panel g2 accent-cyan" id="panel-diagnosis">
       <div class="panel-head">
         <h2><span class="idx">10</span> Diagnosis</h2>
-        <button class="ghost" id="diag-run">run</button>
+        <button class="btn ghost" id="diag-run">run</button>
       </div>
-      <div class="tool-out" id="diag-out">Run the local network diagnosis (reference host + gateway).</div>
+      <div class="outbox" id="diag-out">Run the local network diagnosis (reference host + gateway).</div>
     </section>
 
-    <!-- ---------- 10 AI ANALYSIS ---------- -->
-    <section class="panel accent-pink span-2" id="panel-ai">
+    <!-- 11 AI ANALYSIS -->
+    <section class="panel g3 accent-pink" id="panel-ai">
       <div class="panel-head">
         <h2><span class="idx">11</span> AI Analysis <span class="badge ai-badge" id="ai-badge">OpenRouter</span></h2>
         <div class="head-actions">
-          <button class="ghost" id="ai-analyse">analyse scan</button>
-          <button class="ghost" id="ai-ask">ask about results</button>
+          <button class="btn ghost" id="ai-analyse">analyse scan</button>
+          <button class="btn ghost" id="ai-ask">ask about results</button>
         </div>
       </div>
-      <p class="hint">Send your latest scan (or the whole stability history) to an OpenRouter model for recommendations. The key stays in your browser unless you start the server with one.</p>
+      <p class="hint">Send your latest scan to an OpenRouter model for recommendations. The key stays in your browser unless you start the server with one.</p>
       <div class="ai-config">
-        <label class="field wide-field"><span>OpenRouter API key</span>
+        <label class="field"><span>OpenRouter API key</span>
           <input type="password" id="ai-key" placeholder="sk-or-… (stored locally in this browser)" spellcheck="false" />
         </label>
-        <label class="field wide-field"><span>model</span>
+        <label class="field"><span>model</span>
           <div class="model-pick">
             <select id="ai-model-select" class="sel"></select>
             <input type="text" id="ai-model" value="openai/gpt-4o-mini" spellcheck="false" />
           </div>
         </label>
         <div class="model-filters">
-          <button class="seg active" id="ai-seg-all">all</button>
-          <button class="seg" id="ai-seg-free">free</button>
-          <button class="seg" id="ai-seg-paid">paid</button>
-          <button class="ghost tiny" id="ai-models-refresh" title="reload the model list">⟳</button>
+          <div class="seg-group">
+            <button class="seg active" id="ai-seg-all">all</button>
+            <button class="seg" id="ai-seg-free">free</button>
+            <button class="seg" id="ai-seg-paid">paid</button>
+          </div>
+          <button class="btn ghost tiny" id="ai-models-refresh" title="reload the model list">⟳</button>
           <span class="model-count" id="ai-model-count"></span>
         </div>
         <label class="chk"><input type="checkbox" id="ai-remember" checked /> remember key</label>
@@ -3332,18 +3327,18 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="tool-row">
         <input type="text" id="ai-question" placeholder="optional: ask something specific, e.g. “best for gaming in EU?”" spellcheck="false" />
       </div>
-      <div class="ai-out" id="ai-out">Run a scan, then hit ANALYSE SCAN for an AI recommendation.</div>
+      <div class="outbox tall" id="ai-out">Run a scan, then hit ANALYSE SCAN for an AI recommendation.</div>
     </section>
 
-    <!-- ---------- 12 APPEARANCE ---------- -->
-    <section class="panel span-2 accent-blue" id="panel-appearance">
+    <!-- 12 APPEARANCE -->
+    <section class="panel g3 accent-blue" id="panel-appearance">
       <div class="panel-head">
         <h2><span class="idx">12</span> Appearance</h2>
         <div class="head-actions">
-          <button class="ghost" id="theme-reset">reset</button>
+          <button class="btn ghost" id="theme-reset">reset</button>
         </div>
       </div>
-      <p class="hint">Make it yours — accent colours, text colours, font and size. Saved in this browser and applied instantly.</p>
+      <p class="hint">Make it yours — colours, font and effects. Saved in this browser and applied instantly.</p>
 
       <div class="appear-grid">
         <div class="appear-block">
@@ -3372,8 +3367,8 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <div class="appear-title">font</div>
           <div class="font-row">
             <label class="field"><span>family</span>
-              <select id="font-family" class="sel sm">
-                <option value="Outfit">Outfit (default)</option>
+              <select id="font-family" class="sel">
+                <option value="Inter">Inter (default)</option>
                 <option value="system">System UI</option>
                 <option value="Georgia">Georgia (serif)</option>
                 <option value="'Courier New'">Courier (mono)</option>
@@ -3384,7 +3379,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
               <div class="with-unit"><input type="number" id="font-size" min="12" max="20" step="0.5" value="14.5" /><em>px</em></div>
             </label>
             <label class="field"><span>density</span>
-              <select id="ui-density" class="sel sm">
+              <select id="ui-density" class="sel">
                 <option value="cozy">cozy</option>
                 <option value="compact">compact</option>
                 <option value="roomy">roomy</option>
@@ -3399,729 +3394,544 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
             <label class="chk"><input type="checkbox" id="fx-aurora" checked /> aurora glow</label>
             <label class="chk"><input type="checkbox" id="fx-grid" checked /> grid</label>
             <label class="chk"><input type="checkbox" id="fx-scanlines" /> scanlines</label>
-            <label class="chk"><input type="checkbox" id="fx-sparkles" checked /> sparkles</label>
+            <label class="chk"><input type="checkbox" id="fx-sparkles" /> sparkles</label>
           </div>
         </div>
       </div>
     </section>
   </main>
 
-  <!-- ---------- FOCUS OVERLAY (one panel, full screen) ---------- -->
-  <div class="focus-backdrop" id="focus-backdrop" hidden></div>
-  <div class="focus-host" id="focus-host" hidden aria-hidden="true">
+  <!-- ---------- FOCUS OVERLAY (single wrapper; only intercepts clicks while open) ---------- -->
+  <div class="focus-overlay" id="focus-overlay" hidden>
+    <div class="focus-backdrop" id="focus-backdrop"></div>
     <div class="focus-frame">
-      <button class="focus-close" id="focus-close" aria-label="close focused panel">✕</button>
+      <button class="icon-btn focus-close" id="focus-close" aria-label="close focused panel">✕</button>
       <div class="focus-slot" id="focus-slot"></div>
     </div>
   </div>
 
-
-
   <script src="/app.js"></script>
 </body>
+</html>
 """
 _WEB_APP_CSS = r"""/* ============================================================
-   NEXUS DNS — vibrant command-deck theme
+   DNS Console — front-end stylesheet (vanilla, no build step)
    ============================================================ */
 
 :root {
   --bg: #08060f;
-  --bg-2: #0d0a1c;
-  --panel: rgba(20, 16, 38, 0.66);
-  --panel-solid: #14102a;
+  --panel: rgba(18, 15, 34, 0.72);
+  --panel-solid: #140f24;
+  --line: rgba(150, 140, 200, 0.14);
+  --line-2: rgba(150, 140, 200, 0.28);
   --ink: #eae6ff;
   --dim: #9a92c4;
-  --dim-2: #635c8c;
-  --line: rgba(150, 130, 255, 0.16);
-  --line-strong: rgba(150, 130, 255, 0.42);
+  --dim-2: #6f6a94;
 
+  --acc: #35e6ff;
   --cyan: #35e6ff;
-  --green: #46f5a0;
-  --amber: #ffc24b;
-  --pink: #ff6ec7;
-  --violet: #a678ff;
-  --blue: #6aa6ff;
-  --danger: #ff5c7a;
-  --good: #46f5a0;
+  --green: #37ff8b;
+  --amber: #ffb648;
+  --pink: #ff6fa5;
+  --violet: #a97bff;
+  --blue: #6aa8ff;
 
-  --acc: var(--cyan);
   --radius: 14px;
-  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --display: "Outfit", system-ui, sans-serif;
+  --radius-sm: 9px;
+  --shadow: 0 16px 40px -26px rgba(0, 0, 0, 0.9);
+
+  --display: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
-  background: radial-gradient(1400px 900px at 8% -12%, rgba(120, 90, 255, 0.20), transparent 60%),
-              radial-gradient(1100px 800px at 100% 0%, rgba(255, 110, 199, 0.16), transparent 55%),
-              radial-gradient(1000px 900px at 50% 130%, rgba(53, 230, 255, 0.14), transparent 60%),
-              linear-gradient(180deg, var(--bg-2), var(--bg));
-  color: var(--ink);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   font-family: var(--display);
   font-size: 14.5px;
-  line-height: 1.5;
-  overflow: hidden;
-  display: flex; flex-direction: column;
+  color: var(--ink);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- atmosphere ---- */
-.aurora {
-  position: fixed; inset: -20%; z-index: -2; pointer-events: none; filter: blur(70px); opacity: 0.6;
-  background:
-    radial-gradient(38% 30% at 20% 25%, rgba(53,230,255,0.30), transparent 60%),
-    radial-gradient(34% 30% at 78% 20%, rgba(255,110,199,0.30), transparent 60%),
-    radial-gradient(40% 34% at 60% 82%, rgba(166,120,255,0.28), transparent 60%);
-  animation: drift 22s ease-in-out infinite alternate;
-}
-@keyframes drift {
-  0%   { transform: translate3d(-2%, -1%, 0) scale(1); }
-  50%  { transform: translate3d(2%, 2%, 0) scale(1.06); }
-  100% { transform: translate3d(-1%, 3%, 0) scale(1.02); }
-}
-.grid-bg {
-  position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5;
+/* ---------- background layers ---------- */
+.bg-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.bg-orb { position: absolute; width: 46vw; height: 46vw; border-radius: 50%; filter: blur(90px); opacity: 0.32; }
+.bg-orb.o1 { top: -12vw; left: -8vw; background: var(--acc); }
+.bg-orb.o2 { bottom: -14vw; right: -10vw; background: var(--violet); }
+.bg-grid {
+  position: absolute; inset: 0;
   background-image:
-    linear-gradient(rgba(150,130,255,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(150,130,255,0.06) 1px, transparent 1px);
-  background-size: 46px 46px;
-  mask-image: radial-gradient(circle at 50% 30%, #000 30%, transparent 85%);
+    linear-gradient(rgba(150, 140, 200, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(150, 140, 200, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(circle at 50% 26%, #000, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 26%, #000, transparent 78%);
 }
-.scanlines {
-  position: fixed; inset: 0; z-index: 60; pointer-events: none; opacity: 0.18;
-  background: repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.30) 3px);
-  mix-blend-mode: multiply;
+.bg-layer::before {
+  content: ""; position: absolute; inset: 0; opacity: 0.5;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 3px);
 }
-.sparkles {
-  position: fixed; inset: 0; z-index: 55; pointer-events: none; opacity: 0.7;
-  background-image:
-    radial-gradient(1.6px 1.6px at 12% 22%, #fff, transparent),
-    radial-gradient(1.4px 1.4px at 82% 14%, #ffe0fb, transparent),
-    radial-gradient(1.6px 1.6px at 68% 62%, #d8f7ff, transparent),
-    radial-gradient(1.3px 1.3px at 28% 78%, #fff, transparent),
-    radial-gradient(1.4px 1.4px at 84% 86%, #ffe9c9, transparent);
-  animation: twinkle 4.5s ease-in-out infinite;
+.bg-layer::after {
+  content: ""; position: absolute; inset: 0; opacity: 0.35;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 130px 130px;
 }
-@keyframes twinkle { 0%,100% { opacity: 0.25; } 50% { opacity: 0.8; } }
+body.no-aurora .bg-orb { display: none; }
+body.no-grid .bg-grid { display: none; }
+body.no-scanlines .bg-layer::before { display: none; }
+body.no-sparkles .bg-layer::after { display: none; }
 
-/* ---- topbar ---- */
+/* ---------- skip link ---------- */
+.skip-link { position: absolute; left: -9999px; top: 0; }
+.skip-link:focus {
+  left: 8px; top: 8px; z-index: 300; padding: 8px 12px;
+  background: var(--panel-solid); border: 1px solid var(--line-2); border-radius: 8px; color: var(--ink);
+}
+
+/* ---------- top bar ---------- */
 .topbar {
-  position: sticky; top: 0; z-index: 40; flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 15px 26px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(9,7,18,0.92), rgba(9,7,18,0.45));
-  backdrop-filter: blur(12px);
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  height: 56px; padding: 0 16px; z-index: 20;
+  background: rgba(9, 8, 18, 0.72); border-bottom: 1px solid var(--line); backdrop-filter: blur(9px);
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand h1 {
-  font-family: var(--display); font-weight: 800; letter-spacing: 2px; font-size: 21px;
-  background: linear-gradient(90deg, var(--cyan), var(--violet) 55%, var(--pink));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+.tb-left, .tb-right { display: flex; align-items: center; gap: 14px; }
+.brand { display: inline-flex; align-items: center; font-weight: 800; font-size: 15px; letter-spacing: 0.01em; }
+.brand span { color: var(--dim); font-weight: 600; }
+.brand-dot {
+  width: 9px; height: 9px; border-radius: 50%; margin-right: 9px;
+  background: var(--acc); box-shadow: 0 0 12px var(--acc);
 }
-.brand h1 .thin { font-weight: 300; opacity: 0.95; }
-.tag {
-  font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim);
-  border: 1px solid var(--line); padding: 3px 9px; border-radius: 999px;
-  background: rgba(150,130,255,0.08);
+.conn { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dim); }
+.conn em { font-style: normal; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim-2); transition: background 0.2s; }
+.conn-dot.live { background: var(--green); box-shadow: 0 0 9px var(--green); }
+.clock { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.host {
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
 }
-.pulse-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim-2); }
-.pulse-dot.live { background: var(--green); box-shadow: 0 0 12px var(--green); animation: pulse 2s infinite; }
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(70,245,160,0.5); }
-  70% { box-shadow: 0 0 0 12px rgba(70,245,160,0); }
-  100% { box-shadow: 0 0 0 0 rgba(70,245,160,0); }
-}
-.topbar-right { display: flex; align-items: center; gap: 18px; }
-.clock { font-family: var(--mono); font-size: 15px; color: var(--cyan); letter-spacing: 1px; }
-.status { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
 
-/* ---- controls ---- */
-textarea, input[type="text"], input[type="number"], select {
-  width: 100%; background: rgba(6,5,14,0.7); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 10px;
-  font-family: var(--mono); font-size: 13.5px; padding: 10px 12px; outline: none;
-  transition: border-color .18s, box-shadow .18s;
+/* ---------- icon buttons ---------- */
+.icon-btn {
+  width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04); color: var(--dim);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-textarea { min-height: 96px; resize: vertical; line-height: 1.7; }
-textarea.bulk { min-height: 62px; margin-top: 10px; }
-textarea::placeholder, input::placeholder { color: var(--dim-2); }
-textarea:focus, input:focus, select:focus {
-  border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px rgba(150,130,255,0.18), inset 0 0 26px rgba(53,230,255,0.05);
-}
-.sel { margin-bottom: 12px; }
+.icon-btn:hover { color: var(--ink); border-color: var(--line-2); background: rgba(255, 255, 255, 0.08); }
+.burger { flex-direction: column; gap: 3px; }
+.burger span { width: 15px; height: 2px; border-radius: 2px; background: currentColor; }
 
-.controls { display: flex; align-items: flex-end; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
-.field { display: flex; flex-direction: column; gap: 6px; width: 104px; }
-.field span { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-.field input { text-align: center; }
-
-button { font-family: var(--display); cursor: pointer; border-radius: 10px; }
-
-.primary {
-  position: relative; overflow: hidden; border: none; color: #05121a;
-  font-weight: 800; letter-spacing: 1.5px; font-size: 13.5px; text-transform: uppercase;
-  padding: 12px 28px;
-  background: linear-gradient(90deg, var(--cyan), var(--violet) 55%, var(--pink));
-  background-size: 200% 100%;
-  box-shadow: 0 0 26px rgba(120,120,255,0.35);
-  transition: transform .12s, box-shadow .25s, background-position .5s;
+/* ---------- buttons ---------- */
+.btn {
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  padding: 8px 13px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04); color: var(--ink);
+  transition: color 0.15s, border-color 0.15s, background 0.15s, filter 0.15s;
 }
-.primary:hover { transform: translateY(-1px); background-position: 100% 0; box-shadow: 0 0 40px rgba(255,110,199,0.5); }
-.primary:active { transform: translateY(0); }
-.primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; transform: none; }
-.primary.small { padding: 10px 16px; font-size: 11.5px; }
+.btn:hover { border-color: var(--line-2); background: rgba(255, 255, 255, 0.08); }
+.btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 92%, #fff), var(--acc));
+  color: #04121a; border-color: transparent;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: rgba(255, 255, 255, 0.03); }
+.btn.danger { color: #ff9b7a; border-color: rgba(255, 120, 90, 0.3); }
+.btn.danger:hover { background: rgba(255, 120, 90, 0.12); }
+.btn.small { padding: 6px 11px; font-size: 12px; }
+.btn.tiny { padding: 6px 9px; }
+.btn.wide { width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: default; }
 
-.ghost {
-  background: rgba(255,255,255,0.03); color: var(--dim); border: 1px solid var(--line);
-  font-size: 11.5px; letter-spacing: .5px; padding: 7px 12px;
-  transition: color .16s, border-color .16s, background .16s;
+/* ---------- control bar ---------- */
+.controlbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line); background: rgba(9, 8, 18, 0.5);
 }
-.ghost:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(150,130,255,0.14); }
-.ghost.danger { color: var(--danger); border-color: rgba(255,92,122,0.4); }
-.ghost.danger:hover { background: rgba(255,92,122,0.14); color: #fff; }
-.ghost.wide { width: 100%; margin-top: 10px; padding: 10px; }
-
-/* ---- progress ---- */
-.progress-wrap { display: flex; align-items: center; gap: 14px; margin: 16px 0 6px; }
-.progress { flex: 1; height: 7px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; }
-.progress-bar {
-  height: 100%; width: 0%; border-radius: 999px;
-  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink));
-  box-shadow: 0 0 14px rgba(166,120,255,0.7); transition: width .25s ease;
-}
-.progress-text { font-family: var(--mono); font-size: 11.5px; color: var(--dim); min-width: 150px; text-align: right; }
-
-/* ---- metrics ---- */
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0 16px; }
-.metric {
-  border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
-  background: rgba(255,255,255,0.02);
-}
-.m-label { display: block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-.m-val { display: block; font-family: var(--mono); font-size: 21px; font-weight: 700; margin-top: 3px; }
-.m-cyan .m-val   { color: var(--cyan); }
-.m-green .m-val  { color: var(--green); }
-.m-amber .m-val  { color: var(--amber); }
-.m-pink .m-val   { color: var(--pink); }
-.m-cyan   { box-shadow: inset 0 0 0 1px rgba(53,230,255,0.10); }
-.m-green  { box-shadow: inset 0 0 0 1px rgba(70,245,160,0.10); }
-.m-amber  { box-shadow: inset 0 0 0 1px rgba(255,194,75,0.10); }
-.m-pink   { box-shadow: inset 0 0 0 1px rgba(255,110,199,0.10); }
-
-/* ---- table ---- */
-.table-tools { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.table-tools input { flex: 1; }
-.chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); white-space: nowrap; }
-.chk input { width: auto; }
-.table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
-table.results { width: 100%; border-collapse: collapse; font-size: 13px; }
-table.results th {
-  position: sticky; top: 0; text-align: left; font-size: 10px; letter-spacing: 1.5px;
-  text-transform: uppercase; color: var(--dim); padding: 9px 10px;
-  border-bottom: 1px solid var(--line-strong); background: rgba(12,9,24,0.96); backdrop-filter: blur(4px);
-}
-table.results td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.045); font-family: var(--mono); }
-table.results tbody tr { animation: rowIn .3s ease both; }
-@keyframes rowIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-table.results tr:hover td { background: rgba(150,130,255,0.08); }
-.empty td, .empty-note { color: var(--dim-2); font-style: italic; text-align: center; padding: 20px; font-family: var(--display); }
-
-.pill {
-  display: inline-block; font-family: var(--display); font-size: 10px; letter-spacing: 1px;
-  text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid;
-}
-.pill.ok { color: var(--good); border-color: rgba(70,245,160,0.45); background: rgba(70,245,160,0.10); }
-.pill.fail { color: var(--danger); border-color: rgba(255,92,122,0.45); background: rgba(255,92,122,0.10); }
-.pill.warn { color: var(--amber); border-color: rgba(255,194,75,0.45); background: rgba(255,194,75,0.10); }
-
-.bar-cell { display: flex; align-items: center; gap: 8px; }
-.mini-bar { height: 7px; border-radius: 999px; background: linear-gradient(90deg, var(--cyan), var(--pink)); min-width: 3px; }
-
-/* ---- stability ---- */
-.stab-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
-.stab-item {
-  display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
-  border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; animation: rowIn .3s both;
-  background: rgba(255,255,255,0.02);
-}
-.stab-item .ip { font-family: var(--mono); font-size: 13px; color: var(--ink); }
-.stab-item .meta { font-size: 10.5px; color: var(--dim); }
-.stab-score { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--violet); }
-.stab-track { grid-column: 1 / -1; height: 5px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; }
-.stab-fill { height: 100%; background: linear-gradient(90deg, var(--green), var(--cyan), var(--violet)); }
-
-/* ---- dns list ---- */
-.add-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.dns-list { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
-.dns-list li {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px;
-  font-family: var(--mono); font-size: 13px; animation: rowIn .3s both; background: rgba(255,255,255,0.02);
-}
-.dns-list li:hover { border-color: var(--line-strong); }
-.dns-list .del {
-  background: transparent; border: 1px solid rgba(255,92,122,0.35); color: var(--danger);
-  font-family: var(--display); font-size: 11px; padding: 2px 9px;
-}
-.dns-list .del:hover { background: rgba(255,92,122,0.14); color: #fff; }
-
-/* ---- tools ---- */
-.tool-row { margin-bottom: 10px; }
-.tool-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.chip {
-  background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--dim);
-  padding: 8px 13px; font-size: 12px; letter-spacing: .5px; transition: all .16s;
-}
-.chip:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(150,130,255,0.14); }
-.chip.active { color: #05121a; font-weight: 700; }
-.chip.c1.active { background: var(--cyan);   border-color: var(--cyan); }
-.chip.c2.active { background: var(--green);  border-color: var(--green); }
-.chip.c3.active { background: var(--blue);   border-color: var(--blue); }
-.chip.c4.active { background: var(--amber);  border-color: var(--amber); }
-.chip.c5.active { background: var(--pink);   border-color: var(--pink); }
-.chip.c6.active { background: var(--violet); border-color: var(--violet); color: #fff; }
-.tool-out {
-  border: 1px dashed var(--line-strong); border-radius: 11px; padding: 14px;
-  font-family: var(--mono); font-size: 12.5px; color: var(--dim); min-height: 64px;
-  white-space: pre-wrap; background: rgba(0,0,0,0.28);
-}
-.tool-out .k { color: var(--cyan); }
-.tool-out .v { color: var(--ink); }
-.tool-out .err { color: var(--danger); }
-.tool-out .good { color: var(--green); }
-
-/* ---- device / network ---- */
-.device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.dev-cell {
-  display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.02);
-}
-.dev-k { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-.dev-v { font-family: var(--mono); font-size: 13px; color: var(--ink); word-break: break-all; }
-.dev-v.on { color: var(--green); }
-.dev-v.off { color: var(--dim-2); }
-
-/* ---- APN ---- */
-.apn-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.apn-list { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
-.apn-list li {
-  display: flex; justify-content: space-between; gap: 8px; border: 1px solid var(--line);
-  border-radius: 9px; padding: 8px 11px; font-family: var(--mono); font-size: 12.5px;
-}
-.apn-list li.cur { border-color: var(--green); box-shadow: 0 0 0 1px rgba(70,245,160,0.3); }
-.apn-list li.ok { border-color: rgba(70,245,160,0.5); }
-.apn-list li.bad { border-color: rgba(255,92,122,0.5); }
-
-/* ---- import / drop zone ---- */
-.drop {
-  border: 2px dashed var(--line-strong); border-radius: 14px; padding: 26px 18px;
-  text-align: center; cursor: pointer; transition: border-color .18s, background .18s, transform .12s;
-  background: linear-gradient(120deg, rgba(166,120,255,0.06), rgba(53,230,255,0.06));
-}
-.drop:hover, .drop.over { border-color: var(--violet); background: rgba(166,120,255,0.14); transform: translateY(-1px); }
-.drop-icon { font-size: 30px; color: var(--violet); line-height: 1; }
-.drop-text { margin-top: 6px; color: var(--ink); font-weight: 600; }
-.drop-sub { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
-.link { color: var(--cyan); text-decoration: underline; cursor: pointer; }
-.import-out, .ai-out {
-  margin-top: 12px; border: 1px solid var(--line); border-radius: 11px; padding: 13px 14px;
-  font-family: var(--mono); font-size: 12.5px; color: var(--dim); min-height: 54px;
-  white-space: pre-wrap; background: rgba(0,0,0,0.28); max-height: 340px; overflow-y: auto;
-}
-.import-out .ok, .ai-out .ok { color: var(--green); }
-.import-out .err, .ai-out .err { color: var(--danger); }
-.ai-out h4 { color: var(--cyan); font-family: var(--display); margin: 10px 0 4px; }
-.ai-out strong { color: var(--ink); }
-.ai-out code { color: var(--amber); }
-
-/* ---- AI config ---- */
-.ai-config { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
-.field.wide-field { width: auto; flex: 1 1 240px; }
-.field.wide-field input { text-align: left; }
-.ai-badge { background: linear-gradient(90deg, var(--pink), var(--violet)); color: #fff; }
-
-@media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
-}
+.cb-title { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim-2); }
+.cb-count { font-size: 12px; color: var(--dim); }
+.cb-actions { margin-left: auto; display: flex; gap: 8px; }
 
 /* ============================================================
-   ROUND 8 — burger drawer, auto-test, model menu, appearance
+   DASHBOARD DECK — fixed 3 rows over a 12-col grid, no page scroll
    ============================================================ */
-
-/* ---- burger button ---- */
-.burger {
-  display: inline-flex; flex-direction: column; justify-content: center; gap: 4px;
-  width: 38px; height: 34px; padding: 8px 9px; margin-right: 4px;
-  background: rgba(255,255,255,0.05); border: 1px solid var(--line-strong);
-  border-radius: 10px; cursor: pointer; transition: background .15s, border-color .15s;
-}
-.burger:hover { background: rgba(255,255,255,0.10); border-color: var(--acc); }
-.burger span {
-  display: block; height: 2px; width: 100%; border-radius: 2px;
-  background: var(--ink); transition: transform .25s, opacity .2s;
-}
-.burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
-.burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
-.burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
-
-/* ---- drawer ---- */
-.drawer-backdrop {
-  position: fixed; inset: 0; z-index: 70; background: rgba(4,3,10,0.62);
-  backdrop-filter: blur(3px); opacity: 0; transition: opacity .25s;
-}
-.drawer-backdrop.show { opacity: 1; }
-.drawer {
-  position: fixed; top: 0; left: 0; bottom: 0; z-index: 71; width: 286px; max-width: 84vw;
-  display: flex; flex-direction: column;
-  background: linear-gradient(180deg, rgba(20,16,38,0.98), rgba(11,8,24,0.98));
-  border-right: 1px solid var(--line-strong);
-  box-shadow: 22px 0 60px rgba(0,0,0,0.5);
-  transform: translateX(-104%); transition: transform .28s cubic-bezier(.2,.8,.2,1);
-}
-.drawer.open { transform: translateX(0); }
-.drawer-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 18px 12px; border-bottom: 1px solid var(--line);
-}
-.drawer-title { font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 12px; color: var(--dim); }
-.drawer-close {
-  background: none; border: none; color: var(--dim); font-size: 16px; cursor: pointer;
-  padding: 4px 8px; border-radius: 8px;
-}
-.drawer-close:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
-.drawer-nav { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
-.drawer-nav a {
-  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
-  color: var(--ink); text-decoration: none; font-size: 14px; transition: background .15s, color .15s;
-  border-left: 2px solid transparent;
-}
-.drawer-nav a:hover { background: rgba(255,255,255,0.06); }
-.drawer-nav a.active {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--acc) 20%, transparent), transparent);
-  border-left-color: var(--acc); color: var(--acc);
-}
-.drawer-nav .di {
-  font-family: var(--mono); font-size: 11px; color: var(--dim-2); min-width: 20px;
-}
-.drawer-nav a.active .di { color: var(--acc); }
-.drawer-foot { padding: 12px 18px; border-top: 1px solid var(--line); color: var(--dim-2); font-family: var(--mono); font-size: 11px; }
-
-/* ---- section highlight when jumped to ---- */
-.panel.flash { animation: flashPanel 1.4s ease-out; }
-@keyframes flashPanel {
-  0%   { box-shadow: 0 0 0 2px var(--acc), 0 0 40px color-mix(in srgb, var(--acc) 45%, transparent); }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-
-/* ---- small selects / segmented / model picker ---- */
-.sel.sm { padding: 7px 8px; font-size: 12.5px; }
-.seg {
-  background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--dim);
-  padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12px;
-  transition: background .15s, color .15s, border-color .15s;
-}
-.seg:hover { color: var(--ink); }
-.seg.active { background: color-mix(in srgb, var(--acc) 22%, transparent); color: var(--acc); border-color: var(--acc); }
-.ghost.tiny { padding: 4px 9px; font-size: 12px; }
-.model-pick { display: flex; flex-direction: column; gap: 6px; }
-.model-pick .sel { width: 100%; }
-.model-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.model-count { color: var(--dim-2); font-size: 11.5px; font-family: var(--mono); margin-left: auto; }
-
-/* ---- auto-test ---- */
-.auto-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px; margin-bottom: 12px;
-}
-.auto-alerts {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
-  padding: 12px; margin-bottom: 14px;
-  background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px;
-}
-.field.inline { margin: 0; }
-.with-unit { display: flex; align-items: center; gap: 6px; }
-.with-unit input { width: 100%; }
-.with-unit em { font-style: normal; color: var(--dim-2); font-size: 12px; font-family: var(--mono); }
-.auto-timer { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-.ring { position: relative; width: 118px; height: 118px; flex: none; }
-.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 8; }
-.ring-bg { stroke: rgba(255,255,255,0.08); }
-.ring-fg {
-  stroke: var(--amber); stroke-linecap: round;
-  stroke-dasharray: 327; stroke-dashoffset: 327;
-  transition: stroke-dashoffset .95s linear, stroke .3s;
-}
-.ring.running .ring-fg { transition: stroke-dashoffset 1s linear; }
-.ring-label {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px;
-}
-.ring-label span { font-size: 24px; font-weight: 700; font-family: var(--mono); }
-.ring-label em { font-style: normal; font-size: 10.5px; color: var(--dim-2); letter-spacing: .06em; text-transform: uppercase; }
-.auto-stats { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 10px; flex: 1; min-width: 220px; }
-
-/* ---- appearance ---- */
-.appear-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-.appear-block { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
-.appear-title { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
-.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.preset {
-  padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 12.5px;
-  border: 1px solid var(--line-strong); background: rgba(255,255,255,0.04); color: var(--ink);
-  transition: transform .12s, border-color .15s;
-}
-.preset:hover { transform: translateY(-1px); border-color: var(--acc); }
-.preset.active { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 20%, transparent); color: var(--acc); }
-.color-row { display: flex; flex-wrap: wrap; gap: 12px; }
-.color-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--dim); }
-.color-field input[type="color"] {
-  width: 46px; height: 30px; border: 1px solid var(--line-strong); border-radius: 8px;
-  background: none; cursor: pointer; padding: 2px;
-}
-.font-row, .fx-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-.fx-row .chk { margin: 0; }
-
-/* density */
-body[data-density="compact"] .panel { padding: 14px; }
-body[data-density="compact"] .grid { gap: 12px; }
-body[data-density="roomy"] .panel { padding: 26px; }
-body[data-density="roomy"] .grid { gap: 22px; }
-
-/* effect toggles */
-body.no-aurora .aurora { display: none; }
-body.no-grid .grid-bg { display: none; }
-body.no-scanlines .scanlines { display: none; }
-body.no-sparkles .sparkles { display: none; }
-body.no-aurora { background: var(--bg); }
-
-@media (max-width: 900px) {
-  .auto-timer { gap: 14px; }
-  .auto-stats { min-width: 100%; }
-}
-
-/* ---- protocol tags in results table ---- */
-.ptag {
-  display: inline-block; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
-  letter-spacing: .04em; padding: 2px 5px; border-radius: 5px; margin-right: 3px;
-  background: rgba(255,255,255,0.08); color: var(--dim);
-}
-.ptag.ok { background: color-mix(in srgb, var(--good) 26%, transparent); color: var(--good); }
-.ptag.bad { background: color-mix(in srgb, var(--danger) 24%, transparent); color: var(--danger); text-decoration: line-through; }
-
-/* ---- auto-test log lines ---- */
-.auto-line {
-  font-family: var(--mono); font-size: 12px; padding: 2px 0; color: var(--dim);
-  border-bottom: 1px dashed var(--line);
-}
-.auto-line:first-child { color: var(--ink); }
-.badge.live { background: color-mix(in srgb, var(--green) 24%, transparent); color: var(--good); border-color: var(--good); }
-
-/* ---- geo location cell + recommended pairs ---- */
-td.geo-cell { white-space: nowrap; font-size: 12px; color: var(--dim); }
-.reco { margin-top: 14px; }
-.reco h3 {
-  font-family: var(--display); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim); margin: 0 0 8px;
-}
-.reco-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
-.reco-card {
-  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
-  background: rgba(255,255,255,0.03);
-}
-.reco-title { font-size: 11px; letter-spacing: .05em; color: var(--dim); margin-bottom: 6px; }
-.reco-row {
-  display: flex; align-items: center; gap: 8px; padding: 4px 0;
-  font-family: var(--mono); font-size: 12px;
-}
-.reco-rank {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-  padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, var(--acc) 20%, transparent);
-  color: var(--acc);
-}
-.reco-ip { color: var(--ink); font-weight: 600; }
-.reco-cc { color: var(--dim); flex: 1; }
-.reco-ms { color: var(--good); }
-select.sel[multiple] { min-height: 92px; padding: 6px; }
-select.sel[multiple] option { padding: 3px 6px; border-radius: 6px; }
-select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 28%, transparent); color: var(--ink); }
-.tool-out .dim { color: var(--dim); }
-
-/* ============================================================
-   DASHBOARD DECK (round 10b) — every panel visible, no scrolling
-   The whole UI fits the viewport as a fixed 3-row grid. Each row
-   divides its height between the panels in it; every panel is a
-   small window with a header (open/close) and an internal scroll.
-   ============================================================ */
-:root { --deck-rows: 3; }
-
-.grid {
-  display: grid;
+.deck {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: grid; gap: 12px; padding: 12px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: repeat(var(--deck-rows), minmax(0, 1fr));
-  gap: 12px;
-  padding: 10px 16px;
-  width: 100%; max-width: 1760px; margin: 0 auto;
-  flex: 1 1 auto; min-height: 0;
-  overflow: hidden;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
 }
-/* spans chosen so each of the 3 rows sums to 12 columns */
 .g2 { grid-column: span 2; }
 .g3 { grid-column: span 3; }
 .g4 { grid-column: span 4; }
 
+/* ---------- panel ---------- */
 .panel {
-  position: relative; background: var(--panel);
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 12px 14px; backdrop-filter: blur(9px);
-  box-shadow: 0 18px 50px -30px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04);
-  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); backdrop-filter: blur(10px);
 }
+.panel::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--pa, var(--acc)), transparent);
+}
+.accent-cyan::before { --pa: var(--cyan); }
+.accent-green::before { --pa: var(--green); }
+.accent-amber::before { --pa: var(--amber); }
+.accent-pink::before { --pa: var(--pink); }
+.accent-violet::before { --pa: var(--violet); }
+.accent-blue::before { --pa: var(--blue); }
 
-.panel::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: var(--radius) var(--radius) 0 0; opacity: 0.9; }
-.accent-cyan::before   { background: linear-gradient(90deg, transparent, var(--cyan), transparent); }
-.accent-green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
-.accent-amber::before  { background: linear-gradient(90deg, transparent, var(--amber), transparent); }
-.accent-pink::before   { background: linear-gradient(90deg, transparent, var(--pink), transparent); }
-.accent-violet::before { background: linear-gradient(90deg, transparent, var(--violet), transparent); }
-.accent-blue::before   { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
-
-/* header is the click target that opens/closes the panel */
 .panel-head {
-  display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
-  cursor: pointer; user-select: none; border-radius: 10px; padding: 2px;
-  transition: background .15s; flex: 0 0 auto;
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px; border-bottom: 1px solid var(--line); cursor: pointer;
 }
-.panel-head:hover { background: rgba(255,255,255,0.035); }
 .panel-head h2 {
-  font-family: var(--display); font-weight: 700; font-size: 14px; letter-spacing: .5px;
-  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin: 0 auto 0 0; display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px; font-weight: 650; letter-spacing: 0.01em;
 }
-.panel-head .idx {
-  font-family: var(--mono); font-size: 10px; color: var(--cyan);
-  border: 1px solid var(--line-strong); padding: 1px 6px; border-radius: 6px;
-  background: rgba(53,230,255,0.08); flex: 0 0 auto;
-}
-.badge {
-  font-family: var(--mono); font-size: 10px; color: #08131a; background: var(--green);
-  border-radius: 999px; padding: 1px 8px; font-weight: 700;
-}
-.head-actions { display: flex; gap: 6px; flex-wrap: wrap; cursor: default; flex: 0 0 auto; }
-.hint { color: var(--dim); font-size: 11.5px; margin-bottom: 8px; flex: 0 0 auto; }
+.idx { font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
+.head-actions { display: flex; gap: 6px; align-items: center; }
 
-.head-tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+/* focus + collapse controls injected by JS */
+.head-tools { display: flex; gap: 2px; align-items: center; }
 .ico-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--dim);
-  transition: color .15s, border-color .15s, background .15s, transform .18s;
+  width: 26px; height: 26px; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--dim-2);
+  transition: color 0.15s, background 0.15s;
 }
-.ico-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
-.ico-btn svg { width: 14px; height: 14px; }
-.chev { transition: transform .22s ease; }
+.ico-btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+.ico-btn svg { width: 15px; height: 15px; }
+.chev { transition: transform 0.2s; }
 .panel.collapsed .chev { transform: rotate(-90deg); }
 
-/* the body is the panel's scroll window */
-.panel-body {
-  flex: 1 1 auto; min-height: 0; overflow: hidden;
-  display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
-  opacity: 1;
+/* collapsible body: grid-template-rows 1fr -> 0fr (grows to content, never clips) */
+.panel-body { display: grid; grid-template-rows: 1fr; min-height: 0; transition: grid-template-rows 0.26s ease; }
+.panel-body-inner {
+  min-height: 0; overflow: auto; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+  transition: opacity 0.18s;
 }
-.panel-body > .panel-body-inner { overflow: auto; min-height: 0; padding-right: 4px; }
-.panel.collapsed .panel-body { grid-template-rows: 0fr; opacity: 0; }
-.panel.collapsed { flex: 0 0 auto; }
-.panel.collapsed .panel-head { margin-bottom: 0; }
+.panel.collapsed .panel-body { grid-template-rows: 0fr; }
+.panel.collapsed .panel-body-inner { opacity: 0; pointer-events: none; }
 
-/* the collapsed card fills its cell as a big clickable tile */
-.panel.collapsed::after {
-  content: "click to open";
-  margin: auto; font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--dim-2);
+body[data-density="compact"] .panel-body-inner { padding: 8px 10px; gap: 7px; }
+body[data-density="roomy"] .panel-body-inner { padding: 16px 18px; gap: 13px; }
+
+.hint { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--dim-2); }
+
+/* ---------- import dropzone ---------- */
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer;
+  padding: 16px 12px; text-align: center; border: 1.5px dashed var(--line-2); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02); transition: border-color 0.15s, background 0.15s;
+}
+.drop:hover { border-color: var(--acc); background: rgba(255, 255, 255, 0.04); }
+.drop.over { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.drop-icon { font-size: 22px; color: var(--acc); line-height: 1; }
+.drop-text { font-size: 12.5px; }
+.drop-sub { font-size: 11px; color: var(--dim-2); }
+.link { color: var(--acc); text-decoration: underline; cursor: pointer; }
+
+/* ---------- generic form controls ---------- */
+input[type="text"], input[type="password"], input[type="number"], textarea, .sel {
+  font: inherit; color: var(--ink); background: rgba(8, 7, 16, 0.7);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus, textarea:focus, .sel:focus {
+  border-color: var(--line-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 18%, transparent);
+}
+.sel { cursor: pointer; }
+textarea.bulk { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; min-height: 62px; }
+textarea.targets { min-height: 78px; }
+
+.field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--dim-2); min-width: 0; }
+.field > span { letter-spacing: 0.06em; text-transform: uppercase; }
+.field input, .field select { width: 100%; }
+
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.chk input { accent-color: var(--acc); }
+
+.with-unit { display: flex; align-items: center; gap: 4px; }
+.with-unit input { width: 66px; }
+.with-unit em { font-style: normal; font-size: 11px; color: var(--dim-2); }
+
+.add-row, .tool-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.add-row input { flex: 1; min-width: 100px; }
+.tool-row .field { flex: 1; min-width: 120px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.controls .field { width: 92px; }
+.controls #run { margin-left: auto; }
+
+/* ---------- output box ---------- */
+.outbox {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--dim);
+  background: rgba(6, 6, 14, 0.6); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; white-space: pre-wrap; overflow: auto; min-height: 38px;
+}
+.outbox.tall { min-height: 108px; }
+.k { color: var(--dim-2); }
+.v { color: var(--ink); }
+.err { color: var(--pink); }
+.ok, .good { color: var(--green); }
+.dim { color: var(--dim-2); }
+
+/* ---------- progress + metrics ---------- */
+.progress-wrap { display: flex; flex-direction: column; gap: 5px; }
+.progress { height: 6px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, 0.06); }
+.progress-bar {
+  height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--acc), color-mix(in srgb, var(--acc) 45%, var(--violet)));
+  transition: width 0.2s;
+}
+.progress-text { font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
+
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.metric {
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px 8px 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02);
+}
+.metric::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--mc, var(--acc)); }
+.metric .m-label { font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim-2); }
+.metric .m-val { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.metric.cyan { --mc: var(--cyan); }
+.metric.green { --mc: var(--green); }
+.metric.amber { --mc: var(--amber); }
+.metric.pink { --mc: var(--pink); }
+
+/* ---------- results table ---------- */
+.table-tools { display: flex; gap: 10px; align-items: center; }
+.table-tools input[type="text"] { flex: 1; }
+.table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.results { width: 100%; border-collapse: collapse; font-size: 12px; }
+.results th {
+  position: sticky; top: 0; z-index: 1; text-align: left; padding: 8px 10px;
+  background: var(--panel-solid); color: var(--dim-2); font-weight: 600;
+  font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+}
+.results td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.results tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+.results .empty td { text-align: center; color: var(--dim-2); padding: 18px; }
+.bar-cell { display: flex; align-items: center; gap: 8px; }
+.mini-bar { height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--acc), var(--green)); min-width: 3px; }
+.geo-cell { white-space: nowrap; }
+
+.pill { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.pill.ok { background: rgba(55, 255, 139, 0.14); color: var(--green); }
+.pill.warn { background: rgba(255, 182, 72, 0.16); color: var(--amber); }
+.pill.fail { background: rgba(255, 111, 165, 0.16); color: var(--pink); }
+
+.ptag {
+  font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  border: 1px solid var(--line); color: var(--dim);
+}
+.ptag.ok { color: var(--green); border-color: rgba(55, 255, 139, 0.35); }
+.ptag.bad { color: var(--pink); border-color: rgba(255, 111, 165, 0.35); }
+
+/* ---------- recommended pairs ---------- */
+.reco { display: flex; flex-direction: column; gap: 8px; }
+.reco h3 { margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim-2); }
+.reco-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.reco-card { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: rgba(255, 255, 255, 0.02); }
+.reco-title { font-size: 10.5px; color: var(--dim-2); margin-bottom: 6px; }
+.reco-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; }
+.reco-rank { font-size: 9.5px; text-transform: uppercase; color: var(--acc); }
+.reco-ip { font-family: var(--mono); }
+.reco-cc { color: var(--dim); }
+.reco-ms { font-family: var(--mono); color: var(--green); }
+
+/* ---------- stability ---------- */
+.stab-list { display: flex; flex-direction: column; }
+.stab-item { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.stab-item .ip { font-family: var(--mono); font-size: 12px; }
+.stab-item .meta { font-size: 10.5px; color: var(--dim-2); }
+.stab-score { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+.stab-track { grid-column: 1 / -1; height: 5px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, 0.06); }
+.stab-fill { height: 100%; background: linear-gradient(90deg, var(--acc), var(--green)); }
+.empty-note { font-size: 11.5px; color: var(--dim-2); font-style: italic; }
+
+/* ---------- lists (saved DNS / APN / profiles) ---------- */
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.list li {
+  display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 8px; font-family: var(--mono); font-size: 12px;
+}
+.list li .del {
+  margin-left: auto; font: inherit; font-size: 11px; cursor: pointer; color: var(--pink);
+  background: transparent; border: 0; padding: 2px 4px;
+}
+.list li .del:hover { text-decoration: underline; }
+.list li.cur { border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 22%, transparent); }
+.list li.ok { border-color: rgba(55, 255, 139, 0.4); }
+.list li.bad { border-color: rgba(255, 111, 165, 0.4); }
+.apn-wrap { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+
+/* ---------- device / network grid ---------- */
+.device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
+.dev-cell {
+  display: flex; flex-direction: column; gap: 2px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, 0.02);
+}
+.dev-k { font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim-2); }
+.dev-v { font-family: var(--mono); font-size: 12.5px; }
+.dev-v.on { color: var(--green); }
+.dev-v.off { color: var(--pink); }
+
+/* ---------- probe chips ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font: inherit; font-size: 11.5px; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--dim);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.chip:hover { color: var(--ink); border-color: var(--line-2); }
+.chip.active { color: #04121a; background: var(--acc); border-color: transparent; }
+
+/* ---------- AI model picker ---------- */
+.ai-config { display: flex; flex-direction: column; gap: 8px; }
+.model-pick { display: flex; gap: 6px; }
+.model-pick select { flex: 1; }
+.model-pick input { width: 44%; }
+.model-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seg-group { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg { font: inherit; font-size: 11.5px; padding: 5px 12px; background: transparent; color: var(--dim); border: 0; cursor: pointer; }
+.seg:hover { color: var(--ink); }
+.seg.active { background: var(--acc); color: #04121a; }
+.model-count { font-size: 11px; color: var(--dim-2); }
+
+/* ---------- appearance ---------- */
+.appear-grid { display: grid; gap: 12px; }
+.appear-block { display: flex; flex-direction: column; gap: 7px; }
+.appear-title { font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim-2); }
+.preset-row, .color-row, .font-row, .fx-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.preset {
+  font: inherit; font-size: 11.5px; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--dim);
+}
+.preset:hover { color: var(--ink); border-color: var(--line-2); }
+.preset.active { color: #04121a; background: var(--acc); border-color: transparent; }
+.color-field { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--dim-2); }
+.color-field input[type="color"] {
+  width: 46px; height: 30px; padding: 2px; border-radius: 8px;
+  border: 1px solid var(--line); background: transparent; cursor: pointer;
 }
 
-/* keep wide panels usable in a narrow cell */
-.panel-body-inner > .table-wrap { max-height: none; }
+/* ---------- auto-test timer ---------- */
+.auto-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 10px; }
+.auto-alerts { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.auto-timer { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.ring { position: relative; flex: 0 0 auto; width: 104px; height: 104px; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 8; }
+.ring-bg { stroke: rgba(255, 255, 255, 0.07); }
+.ring-fg {
+  stroke: var(--amber); stroke-linecap: round;
+  stroke-dasharray: 327; stroke-dashoffset: 327; transition: stroke-dashoffset 0.25s linear;
+}
+.ring.running .ring-fg { stroke: var(--green); }
+.ring-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ring-label span { font-family: var(--mono); font-size: 22px; font-weight: 700; }
+.ring-label em { font-style: normal; font-size: 9.5px; color: var(--dim-2); }
+.auto-stats { flex: 1; min-width: 220px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.auto-line { font-family: var(--mono); font-size: 11px; color: var(--dim); }
 
-/* ---- dock toolbar ---- */
-.dock-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  max-width: 1760px; margin: 0 auto; padding: 6px 16px; width: 100%;
-  flex: 0 0 auto; box-sizing: border-box;
+/* ---------- badges ---------- */
+.badge {
+  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--dim);
 }
-.dock-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.dock-title {
-  font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: .18em;
-  text-transform: uppercase; color: var(--dim); white-space: nowrap;
-}
-.dock-count { font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
-.dock-actions { display: flex; gap: 8px; }
-.dock-btn {
-  font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
-  color: var(--dim); background: rgba(255,255,255,0.03);
-  border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s; white-space: nowrap;
-}
-.dock-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
+.badge.live { color: var(--green); border-color: rgba(55, 255, 139, 0.4); }
+.ai-badge { border-color: var(--line-2); }
 
-/* ---- focus overlay (one panel, full screen) ---- */
-.focus-backdrop {
-  position: fixed; inset: 0; z-index: 80; background: rgba(4,3,10,0.72);
-  backdrop-filter: blur(4px); opacity: 0; transition: opacity .22s;
+/* ---------- nav drawer ---------- */
+.scrim { position: fixed; inset: 0; z-index: 90; background: rgba(4, 4, 12, 0.6); opacity: 0; transition: opacity 0.2s; }
+.scrim.show { opacity: 1; }
+.drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 91; width: 282px; max-width: 84vw;
+  display: flex; flex-direction: column; background: var(--panel-solid); border-right: 1px solid var(--line);
+  transform: translateX(-102%); transition: transform 0.24s ease;
 }
-.focus-backdrop.show { opacity: 1; }
-.focus-host {
-  position: fixed; inset: 0; z-index: 81; display: flex; align-items: center; justify-content: center;
-  padding: 22px;
+.drawer.open { transform: none; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.drawer-title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim-2); }
+.drawer-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px; overflow: auto; }
+.drawer-nav a {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px;
+  color: var(--dim); text-decoration: none; font-size: 13px; transition: background 0.15s, color 0.15s;
 }
+.drawer-nav a:hover { background: rgba(255, 255, 255, 0.05); color: var(--ink); }
+.drawer-nav a.active { background: color-mix(in srgb, var(--acc) 14%, transparent); color: var(--ink); }
+.di { font-family: var(--mono); font-size: 10.5px; color: var(--dim-2); }
+
+/* ---------- focus overlay ----------
+   One wrapper element; while it is [hidden] nothing here covers the page. */
+.focus-overlay {
+  position: fixed; inset: 0; z-index: 95;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.focus-backdrop { position: absolute; inset: 0; background: rgba(4, 4, 12, 0.72); backdrop-filter: blur(5px); }
 .focus-frame {
-  position: relative; width: min(1200px, 96vw); height: min(900px, 92vh); overflow: hidden;
-  display: flex; flex-direction: column;
-  border: 1px solid var(--line-strong); border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(20,16,38,0.99), rgba(11,8,24,0.99));
-  box-shadow: 0 40px 120px -30px rgba(0,0,0,0.9);
-  padding: 12px;
-  animation: focusIn .24s cubic-bezier(.2,.8,.2,1);
+  position: relative; width: min(1200px, 96vw); height: min(900px, 92vh);
+  display: flex; flex-direction: column; padding: 12px;
+  background: linear-gradient(180deg, rgba(22, 18, 40, 0.99), rgba(12, 10, 24, 0.99));
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.9);
+  animation: popIn 0.2s ease;
 }
-@keyframes focusIn { from { transform: translateY(14px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
-.focus-close {
-  position: absolute; top: 12px; right: 12px; z-index: 2;
-  width: 32px; height: 32px; border-radius: 9px; cursor: pointer;
-  border: 1px solid var(--line); background: rgba(10,8,20,0.8); color: var(--dim); font-size: 15px;
-}
-.focus-close:hover { color: var(--ink); border-color: var(--line-strong); }
-.focus-slot { flex: 1 1 auto; min-height: 0; display: flex; }
-.focus-slot > .panel {
-  flex: 1 1 auto; animation: none; opacity: 1; transform: none;
-  border: none; background: transparent; box-shadow: none; padding: 4px;
-}
-.focus-slot > .panel::before, .focus-slot > .panel::after { display: none; }
+.focus-close { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.focus-slot { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
+.focus-slot > .panel { flex: 1 1 auto; border: none; background: transparent; box-shadow: none; border-radius: 0; }
+.focus-slot > .panel::before { display: none; }
 .focus-slot .panel-head { cursor: default; }
-.focus-slot .panel.collapsed .panel-body { grid-template-rows: 1fr; opacity: 1; }
+.focus-slot .panel.collapsed .panel-body { grid-template-rows: 1fr; }
+.focus-slot .panel.collapsed .panel-body-inner { opacity: 1; pointer-events: auto; }
 
-/* ---- responsive: stack cells and let the page scroll on small screens ---- */
-@media (max-width: 1120px) {
+@keyframes popIn { from { transform: translateY(12px) scale(0.985); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- jump highlight ---------- */
+.panel.flash { animation: flashPanel 1.3s ease-out; }
+@keyframes flashPanel {
+  0% { box-shadow: 0 0 0 2px var(--acc), 0 0 40px color-mix(in srgb, var(--acc) 40%, transparent); }
+  100% { box-shadow: var(--shadow); }
+}
+
+/* ---------- accessibility ---------- */
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--acc) 70%, transparent); outline-offset: 2px; }
+
+/* ---------- responsive: stack + allow page scroll on small screens ---------- */
+@media (max-width: 1180px) {
   body { overflow: auto; }
-  .grid {
+  .deck {
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-auto-rows: minmax(210px, auto);
+    grid-template-rows: none; grid-auto-rows: minmax(210px, auto);
     height: auto; overflow: visible;
   }
   .g2, .g3 { grid-column: span 6; }
   .g4 { grid-column: span 12; }
-  .panel { min-height: 220px; }
 }
-@media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; padding: 10px; }
+@media (max-width: 720px) {
+  .deck { grid-template-columns: 1fr; padding: 10px; }
   .g2, .g3, .g4 { grid-column: span 1; }
-  .dock-bar { padding: 6px 12px; }
-  .focus-host { padding: 8px; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
   .focus-frame { width: 100%; height: 96vh; }
+  .clock { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
 """
 _WEB_APP_JS = r"""/* ============================================================
@@ -4193,26 +4003,6 @@ _WEB_APP_JS = r"""/* ===========================================================
   const PANEL_KEY = "nexus_panel_state";
   const dockPanels = [...document.querySelectorAll("main .panel")];
 
-  // Spans over a 12-column grid, packed into exactly 3 rows:
-  //   row 1: import(4) scanner(4) autotest(4)
-  //   row 2: stability(2) list(2) tools(2) network(2) device(4)
-  //   row 3: apn(2) profiles(2) diagnosis(2) ai(3) appearance(3)
-  const SPANS = {
-    "panel-import": 4,
-    "panel-scanner": 4,
-    "panel-autotest": 4,
-    "panel-stability": 2,
-    "panel-list": 2,
-    "panel-tools": 2,
-    "panel-network": 2,
-    "panel-device": 4,
-    "panel-apn": 2,
-    "panel-profiles": 2,
-    "panel-diagnosis": 2,
-    "panel-ai": 3,
-    "panel-appearance": 3,
-  };
-
   const CHEV = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const EXPAND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -4225,13 +4015,10 @@ _WEB_APP_JS = r"""/* ===========================================================
     try { localStorage.setItem(PANEL_KEY, JSON.stringify(st)); } catch {}
   }
 
-  // Restructure each card: span it, wrap its body, add focus + collapse controls.
+  // Restructure each card: wrap its body, add focus + collapse controls.
   dockPanels.forEach((panel) => {
     const head = panel.querySelector(".panel-head");
     if (!head) return;
-
-    const span = SPANS[panel.id];
-    if (span) panel.classList.add("g" + span);
 
     const body = el("div", "panel-body");
     const bodyInner = el("div", "panel-body-inner");
@@ -4310,7 +4097,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("dock-collapse").addEventListener("click", () => setAllPanels(true));
 
   /* ---- focus overlay: pop any card into one full-screen view ---- */
-  const focusHost = $("focus-host");
+  const focusOverlay = $("focus-overlay");
   const focusBackdrop = $("focus-backdrop");
   const focusSlot = $("focus-slot");
   let focusedPanel = null;
@@ -4323,27 +4110,19 @@ _WEB_APP_JS = r"""/* ===========================================================
     focusAnchor = document.createComment("panel-anchor");
     panel.parentNode.insertBefore(focusAnchor, panel);
     focusSlot.appendChild(panel);
-    focusHost.hidden = false;
-    focusBackdrop.hidden = false;
-    requestAnimationFrame(() => focusBackdrop.classList.add("show"));
-    focusHost.setAttribute("aria-hidden", "false");
+    focusOverlay.hidden = false;
     closeDrawer();
   }
   function closeFocus() {
     if (!focusedPanel) return;
     const panel = focusedPanel;
     focusedPanel = null;
-    focusBackdrop.classList.remove("show");
-    focusHost.setAttribute("aria-hidden", "true");
-    setTimeout(() => {
-      focusHost.hidden = true;
-      focusBackdrop.hidden = true;
-    }, 220);
     if (focusAnchor && focusAnchor.parentNode) {
       focusAnchor.parentNode.insertBefore(panel, focusAnchor);
       focusAnchor.remove();
     }
     focusAnchor = null;
+    focusOverlay.hidden = true;
   }
   $("focus-close").addEventListener("click", closeFocus);
   focusBackdrop.addEventListener("click", closeFocus);
@@ -5993,7 +5772,7 @@ _WEB_AI_KEY = ""
 # Identify the console honestly to OpenRouter (and its WAF).
 _WEB_AI_TITLE = "NEXUS DNS Console"
 _WEB_AI_REFERER = "https://github.com/Onlyicing1/Dns"
-_WEB_UA = "NEXUS-DNS-Console/3.3 (+https://github.com/Onlyicing1/Dns)"
+_WEB_UA = "NEXUS-DNS-Console/3.4 (+https://github.com/Onlyicing1/Dns)"
 
 
 def _web_ai_analyze(api_key, model, prompt):
@@ -6177,7 +5956,7 @@ def _web_ai_models(force=False):
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.3"
+    server_version = "DnsConsole/3.4"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -6222,7 +6001,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.3"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.4"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
