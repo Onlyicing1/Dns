@@ -54,16 +54,23 @@ will come up on your LAN automatically.
   (concurrency), **chunk** (how often progress is reported), **protocol** and
   **timeout**. The protocol can be **UDP (53)**, **TCP (53)**, **TLS / DoT (853)**,
   **UDP + TCP** together, or **Auto** (try each until one answers) — the results
-  table shows which protocol actually replied. Results stream in live with
-  latency bars, jitter, loss and status. Filter, show alive-only, and
-  **export CSV**.
+  table shows which protocol actually replied. Pick a **probe target** (Google,
+  a game or a CDN) so every server is asked to resolve that host, and tick
+  **geo-locate** to resolve each server's country/ASN. Large lists are sent with
+  a POST body, so tens of thousands of servers no longer overflow the URL.
+  Results stream in live with latency bars, jitter, loss and status. Filter,
+  show alive-only, and **export CSV** (includes country/ASN). After a scan the
+  panel also suggests **recommended pairs** — a fastest pair and a
+  best-diversity pair from different countries.
 - **Navigation** — a hamburger menu (top-left) opens a side drawer listing every
   section; the current section is highlighted as you scroll.
 - **Auto-Test** — a timer that re-runs the scan on an interval, forever (or for a
   fixed number of cycles). Fully customizable: interval, protocol, packets,
-  workers, target source (scanner box or saved list), and latency/jitter/loss
-  alert thresholds. A countdown ring shows the time to the next cycle, and a live
-  log records every cycle and alert.
+  workers, target source (scanner box or saved list), **probe target**, and
+  latency/jitter/loss alert thresholds. Set a **chunk size** to test only that
+  many servers per cycle and **rotate through the list**, so a huge list is
+  covered progressively instead of all at once. A countdown ring shows the time
+  to the next cycle, and a live log records every cycle and alert.
 - **Stability** — deterministic 0–100 ranking built up across every scan and
   **saved to disk** (`~/.dns_console_history.json`) so it keeps building between
   sessions. Clear it any time.
@@ -71,7 +78,9 @@ will come up on your LAN automatically.
   and shared with the CLI's DNS manager.
 - **Probe Lab** — DNS resolve, TCP ping, TLS handshake, HTTP GET, **game
   latency** (protocol-aware, per profile), MTU advice, and a **UDP / TCP / TLS**
-  probe that tests all three DNS transports side by side.
+  probe that tests all three DNS transports side by side. The protocol probe
+  takes a **resolver IP** and a **probe target**, so you can ask a specific
+  server (e.g. `1.1.1.1`) to resolve a chosen game/CDN host over UDP, TCP and DoT.
 - **Network · VPN** — public egress IP, country, ISP, active interface, VPN
   tunnel flag and MTU — check what your VPN exposes.
 - **Device** — a read-only Shizuku snapshot (operator, network type, interface, VPN).

@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .openhands/
+
+# local dev scratch (front-end sources spliced into advanced_core.py)
+_assets/

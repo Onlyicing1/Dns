@@ -1542,8 +1542,8 @@ def select_game_target():
 # ============================================================
 #  DNS RESOLUTION / RAW ASYNC PING CORE
 # ============================================================
-def _build_dns_query(host):
-    """Build a DNS query packet for the given hostname."""
+def _build_dns_query(host, qtype=1):
+    """Build a DNS query packet for the given hostname and record type."""
     import struct
     import random as _random
     # Header: ID (random), flags (standard query), questions, answers, authority, additional
@@ -1554,7 +1554,7 @@ def _build_dns_query(host):
     for part in host.split('.'):
         question += bytes([len(part)]) + part.encode()
     question += b'\x00'
-    question += b'\x00\x01'  # QTYPE = A
+    question += struct.pack('!H', qtype)  # QTYPE
     question += b'\x00\x01'  # QCLASS = IN
     return header + question
 
@@ -1654,6 +1654,346 @@ def native_dns_resolver(host, dns_server, timeout=1.0):
     except Exception:
         pass
     return None
+
+
+def _dns_query_raw(host, qtype, dns_server, timeout=2.0):
+    """Send one DNS query and return the raw response bytes (or None).
+
+    Uses a public resolver (default 1.1.1.1) rather than the target being
+    benchmarked, because this is for lookups *about* a server, not *through* it.
+    Falls back to TCP when the UDP reply is truncated (TC flag)."""
+    import struct
+    dns_ip = dns_server
+    if dns_server and not _is_ip_address(dns_server):
+        try:
+            dns_ip = socket.getaddrinfo(dns_server, None, socket.AF_INET,
+                                        socket.SOCK_STREAM)[0][4][0]
+        except Exception:
+            dns_ip = "1.1.1.1"
+    packet = _build_dns_query(host, qtype)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        sock.sendto(packet, (dns_ip, 53))
+        data, _ = sock.recvfrom(2048)
+        sock.close()
+        if len(data) >= 4 and (data[2] & 0x02):  # TC bit → retry over TCP
+            return _dns_query_raw_tcp(dns_ip, packet, timeout)
+        return data
+    except Exception:
+        return None
+
+
+def _dns_query_raw_tcp(dns_ip, packet, timeout):
+    try:
+        sock = socket.create_connection((dns_ip, 53), timeout)
+        sock.settimeout(timeout)
+        sock.sendall(len(packet).to_bytes(2, "big") + packet)
+        head = _dns_recv_exact(sock, 2)
+        length = int.from_bytes(head, "big")
+        data = _dns_recv_exact(sock, length)
+        sock.close()
+        return data
+    except Exception:
+        return None
+
+
+def _dns_read_name(data, pos):
+    """Read a (possibly compressed) DNS name, returning (name, next_pos)."""
+    labels = []
+    jumped = False
+    next_pos = pos
+    seen = 0
+    while pos < len(data) and seen < 128:
+        seen += 1
+        length = data[pos]
+        if length == 0:
+            pos += 1
+            if not jumped:
+                next_pos = pos
+            break
+        if length & 0xC0 == 0xC0:
+            ptr = ((length & 0x3F) << 8) | data[pos + 1]
+            if not jumped:
+                next_pos = pos + 2
+                jumped = True
+            pos = ptr
+            continue
+        labels.append(data[pos + 1:pos + 1 + length].decode("latin-1", "ignore"))
+        pos += 1 + length
+    if not jumped:
+        next_pos = pos
+    return ".".join(labels), next_pos
+
+
+def _parse_dns_txt(data):
+    """Return the list of TXT-record strings in a DNS response."""
+    import struct
+    if not data or len(data) < 12:
+        return []
+    try:
+        qdcount = struct.unpack("!H", data[4:6])[0]
+        ancount = struct.unpack("!H", data[6:8])[0]
+        pos = 12
+        for _ in range(qdcount):
+            _, pos = _dns_read_name(data, pos)
+            pos += 4
+        out = []
+        for _ in range(ancount):
+            _, pos = _dns_read_name(data, pos)
+            if pos + 10 > len(data):
+                break
+            rtype = struct.unpack("!H", data[pos:pos + 2])[0]
+            rdlength = struct.unpack("!H", data[pos + 8:pos + 10])[0]
+            pos += 10
+            if rtype == 16:  # TXT
+                end = pos + rdlength
+                chunk = ""
+                p = pos
+                while p < end:
+                    ln = data[p]
+                    chunk += data[p + 1:p + 1 + ln].decode("latin-1", "ignore")
+                    p += 1 + ln
+                out.append(chunk)
+            pos += rdlength
+        return out
+    except Exception:
+        return []
+
+
+_COUNTRY_NAMES = {
+    "AD": "Andorra", "AE": "UAE", "AF": "Afghanistan", "AL": "Albania",
+    "AM": "Armenia", "AR": "Argentina", "AT": "Austria", "AU": "Australia",
+    "AZ": "Azerbaijan", "BA": "Bosnia", "BD": "Bangladesh", "BE": "Belgium",
+    "BG": "Bulgaria", "BH": "Bahrain", "BN": "Brunei", "BO": "Bolivia",
+    "BR": "Brazil", "BY": "Belarus", "CA": "Canada", "CH": "Switzerland",
+    "CL": "Chile", "CN": "China", "CO": "Colombia", "CR": "Costa Rica",
+    "CY": "Cyprus", "CZ": "Czechia", "DE": "Germany", "DK": "Denmark",
+    "DO": "Dominican Rep.", "DZ": "Algeria", "EC": "Ecuador", "EE": "Estonia",
+    "EG": "Egypt", "ES": "Spain", "ET": "Ethiopia", "FI": "Finland",
+    "FR": "France", "GB": "UK", "GE": "Georgia", "GH": "Ghana", "GR": "Greece",
+    "GT": "Guatemala", "HK": "Hong Kong", "HR": "Croatia", "HU": "Hungary",
+    "ID": "Indonesia", "IE": "Ireland", "IL": "Israel", "IN": "India",
+    "IQ": "Iraq", "IR": "Iran", "IS": "Iceland", "IT": "Italy", "JP": "Japan",
+    "JO": "Jordan", "KE": "Kenya", "KG": "Kyrgyzstan", "KH": "Cambodia",
+    "KR": "South Korea", "KW": "Kuwait", "KZ": "Kazakhstan", "LB": "Lebanon",
+    "LK": "Sri Lanka", "LT": "Lithuania", "LU": "Luxembourg", "LV": "Latvia",
+    "MA": "Morocco", "MD": "Moldova", "ME": "Montenegro", "MK": "N. Macedonia",
+    "MM": "Myanmar", "MN": "Mongolia", "MX": "Mexico", "MY": "Malaysia",
+    "NG": "Nigeria", "NL": "Netherlands", "NO": "Norway", "NP": "Nepal",
+    "NZ": "New Zealand", "OM": "Oman", "PA": "Panama", "PE": "Peru",
+    "PH": "Philippines", "PK": "Pakistan", "PL": "Poland", "PR": "Puerto Rico",
+    "PT": "Portugal", "PY": "Paraguay", "QA": "Qatar", "RO": "Romania",
+    "RS": "Serbia", "RU": "Russia", "SA": "Saudi Arabia", "SE": "Sweden",
+    "SG": "Singapore", "SI": "Slovenia", "SK": "Slovakia", "SN": "Senegal",
+    "TH": "Thailand", "TN": "Tunisia", "TR": "Türkiye", "TW": "Taiwan",
+    "TZ": "Tanzania", "UA": "Ukraine", "UG": "Uganda", "US": "United States",
+    "UY": "Uruguay", "UZ": "Uzbekistan", "VE": "Venezuela", "VN": "Vietnam",
+    "ZA": "South Africa",
+}
+_GEO_CACHE = {}
+_GEO_LOCK = threading.Lock()
+
+
+def _parse_dns_answers(data, want_qtype=1):
+    """Return the answer records in a DNS response as dicts.
+
+    Each item: {name, type, ttl, value}. A/AAAA values are strings; TXT values
+    are the concatenated string; other types are returned as raw hex."""
+    if not data or len(data) < 12:
+        return []
+    import struct
+    try:
+        qdcount = struct.unpack("!H", data[4:6])[0]
+        ancount = struct.unpack("!H", data[6:8])[0]
+        pos = 12
+        for _ in range(qdcount):
+            _, pos = _dns_read_name(data, pos)
+            pos += 4
+        out = []
+        for _ in range(ancount):
+            name, pos = _dns_read_name(data, pos)
+            if pos + 10 > len(data):
+                break
+            rtype, _, ttl, rdlength = struct.unpack("!HHIH", data[pos:pos + 10])
+            pos += 10
+            rdata = data[pos:pos + rdlength]
+            pos += rdlength
+            if rtype == 1 and rdlength == 4:      # A
+                value = ".".join(str(b) for b in rdata)
+            elif rtype == 28 and rdlength == 16:  # AAAA
+                value = ":".join(f"{rdata[i]:02x}{rdata[i+1]:02x}"
+                                 for i in range(0, 16, 2))
+            elif rtype == 16:                     # TXT
+                chunk, p = "", 0
+                while p < len(rdata):
+                    ln = rdata[p]
+                    chunk += rdata[p + 1:p + 1 + ln].decode("latin-1", "ignore")
+                    p += 1 + ln
+                value = chunk
+            elif rtype == 5:                      # CNAME
+                value = _dns_read_name(data, pos - rdlength)[0]
+            else:
+                value = rdata.hex()
+            out.append({"name": name, "type": rtype, "ttl": ttl, "value": value})
+        return out
+    except Exception:
+        return []
+
+
+def _web_dig(host, dns_server, qtype=1, timeout=2.0):
+    """Resolve `host` via a specific DNS server and return the parsed answers.
+
+    This is the "dig against a chosen resolver" primitive: every method can ask
+    a selected DNS server to resolve a selected game/CDN target."""
+    raw = _dns_query_raw(host, qtype, dns_server, timeout)
+    if raw is None:
+        return {"ok": False, "host": host, "server": dns_server, "answers": []}
+    return {"ok": True, "host": host, "server": dns_server,
+            "answers": _parse_dns_answers(raw, qtype)}
+
+
+def _web_geo_lookup(ip, timeout=2.0, dns_server="1.1.1.1"):
+    """Geo/ASN lookup for an IP via Team Cymru's DNS service.
+
+    Query ``<reversed-ip>.origin.asn.cymru.com`` TXT → "ASN | prefix | CC |
+    registry | allocated". Country = the IP's registration country, which is the
+    practical signal for "where does this resolver live". Cached per process."""
+    if not _is_ip_address(ip) or "." not in ip:
+        return {"country": "", "country_name": "", "asn": "", "org": ""}
+    with _GEO_LOCK:
+        if ip in _GEO_CACHE:
+            return _GEO_CACHE[ip]
+    rev = ".".join(reversed(ip.split(".")))
+    result = {"country": "", "country_name": "", "asn": "", "org": ""}
+    try:
+        txt = _parse_dns_txt(_dns_query_raw(f"{rev}.origin.asn.cymru.com", 16,
+                                            dns_server, timeout))
+        for entry in txt:
+            parts = [p.strip() for p in entry.split("|")]
+            if len(parts) >= 3:
+                result["asn"] = parts[0]
+                cc = parts[2].upper()
+                result["country"] = cc
+                result["country_name"] = _COUNTRY_NAMES.get(cc, cc)
+                break
+        # ASN org name (best-effort, second query)
+        if result["asn"]:
+            txt2 = _parse_dns_txt(_dns_query_raw(f"AS{result['asn']}.asn.cymru.com",
+                                                 16, dns_server, timeout))
+            for entry in txt2:
+                parts = [p.strip() for p in entry.split("|")]
+                if len(parts) >= 5:
+                    result["org"] = parts[4]
+                    break
+    except Exception:
+        pass
+    with _GEO_LOCK:
+        _GEO_CACHE[ip] = result
+    return result
+
+
+def _web_geo_bulk(ips, timeout=2.0, workers=16):
+    """Geo-locate a batch of IPs in parallel; returns {ip: geo-dict}."""
+    out = {}
+    if not ips:
+        return out
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(workers, len(ips))) as pool:
+        futs = {pool.submit(_web_geo_lookup, ip, timeout): ip for ip in ips}
+        for fut in concurrent.futures.as_completed(futs):
+            ip = futs[fut]
+            try:
+                out[ip] = fut.result()
+            except Exception:
+                out[ip] = {"country": "", "country_name": "", "asn": "", "org": ""}
+    return out
+
+
+# ---- Probe query targets (what each test actually resolves) ----------------
+# Testing a resolver against the endpoints you actually use (your games/CDNs)
+# is far more meaningful than the generic "google.com" default.
+_WEB_PROBE_TARGETS = {
+    "google":        ("google.com",          "Google"),
+    "cloudflare":    ("cloudflare.com",      "Cloudflare"),
+    "fastly":        ("fastly.net",          "Fastly CDN"),
+    "akamai":        ("akamai.net",          "Akamai CDN"),
+    "steam":         ("steamcommunity.com",  "Steam"),
+    "epic":          ("epicgames.com",       "Epic Games"),
+    "riot":          ("riotgames.com",       "Riot / Valorant / LoL"),
+    "ea":            ("ea.com",              "EA"),
+    "battlenet":     ("battle.net",          "Battle.net / Blizzard"),
+    "roblox":        ("roblox.com",          "Roblox"),
+    "minecraft":     ("minecraft.net",       "Minecraft"),
+    "pubg":          ("pubg.com",            "PUBG"),
+    "genshin":       ("hoyoverse.com",       "HoYoverse / Genshin"),
+    "discord":       ("discord.com",         "Discord"),
+    "netflix":       ("netflix.com",         "Netflix"),
+    "youtube":       ("youtube.com",         "YouTube"),
+    "spotify":       ("spotify.com",         "Spotify"),
+    "amazon":        ("amazon.com",          "Amazon"),
+    "microsoft":     ("microsoft.com",       "Microsoft"),
+    "apple":         ("apple.com",           "Apple"),
+    "twitter":       ("x.com",               "X / Twitter"),
+    "telegram":      ("telegram.org",        "Telegram"),
+    "whatsapp":      ("whatsapp.com",        "WhatsApp"),
+    "wikipedia":     ("wikipedia.org",       "Wikipedia"),
+    "github":        ("github.com",          "GitHub"),
+}
+
+
+def _web_probe_host(sel):
+    """Map a probe-target key (or a raw hostname) to the hostname to resolve.
+
+    Unknown keys are treated as a literal hostname so a custom target just works."""
+    if not sel:
+        return "google.com"
+    key = str(sel).strip().lower()
+    if key in _WEB_PROBE_TARGETS:
+        return _WEB_PROBE_TARGETS[key][0]
+    return str(sel).strip()
+
+
+def _web_recommend_pairs(rows, fanout=2):
+    """Group resolvers by country and recommend a resilient primary/backup pair.
+
+    Strategy: pick the two fastest alive resolvers that live in *different*
+    countries (so a single country/outage can't take both), then also offer the
+    best same-country pair as a faster (but less diverse) alternative.
+    Returns {"cross": [...], "same": [...], "by_country": {...}}."""
+    alive = [r for r in rows if r.get("status") == "ok" and r.get("latency") is not None]
+    alive.sort(key=lambda r: r["latency"])
+
+    def brief(r):
+        return {"target": r["target"], "latency": r["latency"],
+                "country": r.get("country") or "",
+                "country_name": r.get("country_name") or r.get("country") or "Unknown",
+                "asn": r.get("asn") or "", "org": r.get("org") or ""}
+
+    # fastest two from different countries
+    cross = []
+    seen_cc = set()
+    for r in alive:
+        cc = r.get("country") or "??"
+        if cc in seen_cc:
+            continue
+        cross.append(brief(r))
+        seen_cc.add(cc)
+        if len(cross) >= fanout:
+            break
+    # top pair overall (may share a country = lower latency)
+    same = [brief(r) for r in alive[:fanout]]
+
+    by_country = {}
+    for r in alive:
+        cc = r.get("country") or "??"
+        g = by_country.setdefault(cc, {"country": cc,
+                                       "country_name": r.get("country_name") or cc,
+                                       "count": 0, "best": None})
+        g["count"] += 1
+        if g["best"] is None or r["latency"] < g["best"]["latency"]:
+            g["best"] = brief(r)
+    return {"cross": cross, "same": same, "by_country": by_country}
+
 
 
 # ---- OPTIMIZATION: Reusable DNS query packet (avoid recreating bytes each call) ----
@@ -2791,6 +3131,12 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           </select>
         </label>
         <label class="field"><span>timeout s</span><input type="number" id="timeout" min="0.3" max="10" step="0.1" value="1.5" /></label>
+        <label class="field"><span>probe target</span>
+          <select id="probe" class="sel sm">
+            <option value="google">google.com</option>
+          </select>
+        </label>
+        <label class="chk"><input type="checkbox" id="geo" /> geo-locate</label>
         <button class="primary" id="run"><span class="run-label">RUN SCAN</span></button>
       </div>
 
@@ -2814,12 +3160,17 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="table-wrap">
         <table class="results" id="results">
           <thead>
-            <tr><th>#</th><th>DNS Server</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Proto</th><th>Status</th></tr>
+            <tr><th>#</th><th>DNS Server</th><th>Location</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Proto</th><th>Status</th></tr>
           </thead>
           <tbody id="results-body">
-            <tr class="empty"><td colspan="7">No scan yet — hit RUN SCAN.</td></tr>
+            <tr class="empty"><td colspan="8">No scan yet — hit RUN SCAN.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="reco" id="reco" hidden>
+        <h3>Recommended pairs</h3>
+        <div class="reco-grid" id="reco-grid"></div>
       </div>
     </section>
 
@@ -2864,6 +3215,14 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
             <option value="50">50</option>
           </select>
         </label>
+        <label class="field"><span>probe target</span>
+          <select id="auto-probe" class="sel sm">
+            <option value="google">google.com</option>
+          </select>
+        </label>
+        <label class="field"><span>chunk size</span><input type="number" id="auto-chunk" min="0" max="100000" value="0" title="0 = scan the whole list each cycle; otherwise test this many servers per cycle, rotating through the list" /></label>
+        <label class="chk"><input type="checkbox" id="auto-rotate" checked /> rotate through list</label>
+        <label class="chk"><input type="checkbox" id="auto-geo" /> geo-locate</label>
       </div>
 
       <div class="auto-alerts">
@@ -2932,6 +3291,16 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="tool-row">
         <input type="text" id="tool-host" placeholder="host / IP" spellcheck="false" value="1.1.1.1" />
       </div>
+      <div class="tool-row">
+        <label class="field"><span>probe targets (pick up to 3)</span>
+          <select id="tool-probe" class="sel sm" multiple size="4" title="Ctrl/Cmd-click or tap to select up to 3 game/CDN targets">
+            <option value="google">google.com</option>
+          </select>
+        </label>
+        <label class="field"><span>DNS server (protocols)</span>
+          <input type="text" id="tool-dns" placeholder="resolver IP e.g. 1.1.1.1" spellcheck="false" value="1.1.1.1" />
+        </label>
+      </div>
       <div class="tool-btns">
         <button class="chip c1" data-tool="resolve">DNS resolve</button>
         <button class="chip c2" data-tool="tcp">TCP ping</button>
@@ -2940,6 +3309,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <button class="chip c5" data-tool="game">Game latency</button>
         <button class="chip c6" data-tool="mtu">MTU advice</button>
         <button class="chip c7" data-tool="protocols">UDP / TCP / TLS</button>
+        <button class="chip c1" data-tool="dig">Dig targets</button>
       </div>
       <select id="tool-game" class="sel"></select>
       <div class="tool-out" id="tool-out">Pick a probe to test a host.</div>
@@ -3740,6 +4110,36 @@ body.no-aurora { background: var(--bg); }
 }
 .auto-line:first-child { color: var(--ink); }
 .badge.live { background: color-mix(in srgb, var(--green) 24%, transparent); color: var(--good); border-color: var(--good); }
+
+/* ---- geo location cell + recommended pairs ---- */
+td.geo-cell { white-space: nowrap; font-size: 12px; color: var(--dim); }
+.reco { margin-top: 14px; }
+.reco h3 {
+  font-family: var(--display); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim); margin: 0 0 8px;
+}
+.reco-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.reco-card {
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+}
+.reco-title { font-size: 11px; letter-spacing: .05em; color: var(--dim); margin-bottom: 6px; }
+.reco-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 0;
+  font-family: var(--mono); font-size: 12px;
+}
+.reco-rank {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, var(--acc) 20%, transparent);
+  color: var(--acc);
+}
+.reco-ip { color: var(--ink); font-weight: 600; }
+.reco-cc { color: var(--dim); flex: 1; }
+.reco-ms { color: var(--good); }
+select.sel[multiple] { min-height: 92px; padding: 6px; }
+select.sel[multiple] option { padding: 3px 6px; border-radius: 6px; }
+select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 28%, transparent); color: var(--ink); }
+.tool-out .dim { color: var(--dim); }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -3854,7 +4254,8 @@ _WEB_APP_JS = r"""/* ===========================================================
     $("stat-rate").textContent = "—";
   }
 
-  // opts: { targets, count, workers, chunk, proto, timeout, label, silent }
+  // opts: { targets, count, workers, chunk, proto, timeout, probe, geo,
+  //         label, silent, keepRows }
   // Returns a promise that resolves with the finished rows.
   function runScan(opts) {
     opts = opts || {};
@@ -3868,6 +4269,8 @@ _WEB_APP_JS = r"""/* ===========================================================
     const chunk = Math.max(1, Math.min(5000, opts.chunk ?? (parseInt($("chunk").value, 10) || 100)));
     const proto = opts.proto || $("proto").value || "udp";
     const timeout = Math.max(0.3, Math.min(10, opts.timeout ?? (parseFloat($("timeout").value) || 1.5)));
+    const probe = opts.probe || $("probe").value || "google";
+    const geo = opts.geo ?? $("geo").checked;
 
     if (currentES) currentES.close();
     if (!opts.keepRows) {
@@ -3878,59 +4281,109 @@ _WEB_APP_JS = r"""/* ===========================================================
     runBtn.disabled = true;
     runBtn.querySelector(".run-label").textContent = "SCANNING…";
 
-    const url = `/api/scan?targets=${encodeURIComponent(targets.join(","))}` +
-                `&count=${count}&workers=${workers}&chunk=${chunk}` +
-                `&proto=${encodeURIComponent(proto)}&timeout=${timeout}`;
+    const params = new URLSearchParams({
+      count, workers, chunk, proto, timeout, probe, geo: geo ? "1" : "0",
+    });
+    // Small lists go in the query string; large lists are POSTed so the GET
+    // request line never overflows (which the server rejects with 414).
+    const usePost = targets.length > 200 || params.toString().length + targets.join(",").length > 2000;
+    if (!usePost) params.set("targets", targets.join(","));
+    const url = "/api/scan?" + params.toString();
 
     return new Promise((resolve) => {
-      const es = new EventSource(url);
-      currentES = es;
+      // EventSource can't POST, so for big lists we stream the POST response by
+      // hand with fetch() + a ReadableStream reader.
+      const handlers = {
+        onEvent(msg) {
+          if (msg.type === "start") {
+            progressText.textContent = `0 / ${msg.total} · ${msg.workers} workers · ${msg.proto.toUpperCase()}` +
+              (msg.truncated ? " · capped" : "");
+            progressBar.style.width = "0%";
+          } else if (msg.type === "result") {
+            rows.push(msg);
+            renderResults();
+          } else if (msg.type === "progress") {
+            progressBar.style.width = (msg.done / msg.total) * 100 + "%";
+            progressText.textContent = `${msg.done} / ${msg.total}`;
+          } else if (msg.type === "chunk") {
+            progressBar.style.width = (msg.done / msg.total) * 100 + "%";
+            $("stat-done").textContent = msg.done;
+            $("stat-ok").textContent = msg.ok;
+            $("stat-best").textContent = fmt(msg.best);
+            $("stat-rate").textContent = msg.rate;
+            progressText.textContent = `${msg.done} / ${msg.total} · ${msg.rate}/s`;
+          } else if (msg.type === "geo") {
+            const row = rows.find((r) => r.target === msg.target);
+            if (row) {
+              row.country = msg.country; row.country_name = msg.country_name;
+              row.asn = msg.asn; row.org = msg.org;
+              renderResults();
+            }
+          } else if (msg.type === "geo-start") {
+            progressText.textContent = `scan done · locating ${msg.total} servers…`;
+          } else if (msg.type === "pairs") {
+            renderPairs(msg);
+          } else if (msg.type === "summary") {
+            renderStability(msg.rows);
+          } else if (msg.type === "done") {
+            progressText.textContent = `done — ${msg.summary.ok} ok / ${msg.summary.failed} failed`;
+            finish();
+          } else if (msg.type === "error") {
+            progressText.textContent = "error: " + msg.message;
+            finish();
+          }
+        },
+        onError() { finish(); },
+      };
+
       let finished = false;
-
-      es.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch { return; }
-
-        if (msg.type === "start") {
-          progressText.textContent = `0 / ${msg.total} · ${msg.workers} workers · ${msg.proto.toUpperCase()}`;
-          progressBar.style.width = "0%";
-        } else if (msg.type === "result") {
-          rows.push(msg);
-          renderResults();
-        } else if (msg.type === "progress") {
-          progressBar.style.width = (msg.done / msg.total) * 100 + "%";
-          progressText.textContent = `${msg.done} / ${msg.total}`;
-        } else if (msg.type === "chunk") {
-          progressBar.style.width = (msg.done / msg.total) * 100 + "%";
-          $("stat-done").textContent = msg.done;
-          $("stat-ok").textContent = msg.ok;
-          $("stat-best").textContent = fmt(msg.best);
-          $("stat-rate").textContent = msg.rate;
-          progressText.textContent = `${msg.done} / ${msg.total} · ${msg.rate}/s`;
-        } else if (msg.type === "summary") {
-          renderStability(msg.rows);
-        } else if (msg.type === "done") {
-          progressText.textContent = `done — ${msg.summary.ok} ok / ${msg.summary.failed} failed`;
-          finish();
-        } else if (msg.type === "error") {
-          progressText.textContent = "error: " + msg.message;
-          finish();
-        }
-      };
-      es.onerror = () => {
-        if (runBtn.disabled) progressText.textContent = "stream closed";
-        finish();
-      };
-
       function finish() {
         if (finished) return;
         finished = true;
-        if (currentES) { currentES.close(); currentES = null; }
+        if (currentES) { try { currentES.close(); } catch {} currentES = null; }
         runBtn.disabled = false;
         runBtn.querySelector(".run-label").textContent = "RUN SCAN";
         updateMetrics();
         if (scanDoneHook) scanDoneHook(rows.slice());
         resolve(rows.slice());
+      }
+
+      if (!usePost) {
+        const es = new EventSource(url);
+        currentES = es;
+        es.onmessage = (ev) => {
+          let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+          handlers.onEvent(msg);
+        };
+        es.onerror = () => { if (runBtn.disabled) progressText.textContent = "stream closed"; handlers.onError(); };
+      } else {
+        const ctrl = new AbortController();
+        currentES = { close: () => ctrl.abort() };
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targets, count, workers, chunk, proto, timeout, probe, geo }),
+          signal: ctrl.signal,
+        }).then(async (res) => {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buf.indexOf("\n\n")) >= 0) {
+              const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+              for (const line of block.split("\n")) {
+                if (!line.startsWith("data:")) continue;
+                let msg; try { msg = JSON.parse(line.slice(5)); } catch { continue; }
+                handlers.onEvent(msg);
+              }
+            }
+          }
+          finish();
+        }).catch(() => { if (!finished) progressText.textContent = "stream closed"; finish(); });
       }
     });
   }
@@ -3940,27 +4393,33 @@ _WEB_APP_JS = r"""/* ===========================================================
     const onlyOk = $("only-ok").checked;
     return rows.filter((r) => {
       if (onlyOk && r.status !== "ok") return false;
-      if (q && !(`${r.target} ${r.status} ${r.proto_used || ""}`.toLowerCase().includes(q))) return false;
+      if (q && !(`${r.target} ${r.status} ${r.proto_used || ""} ${r.country_name || ""}`.toLowerCase().includes(q))) return false;
       return true;
     });
   }
 
+  // Redrawing on every streamed row is fine for a handful of targets but
+  // quadratic for thousands, so coalesce redraws to one per animation frame.
+  let renderQueued = false;
   function renderResults() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; renderResultsNow(); });
+  }
+
+  function renderResultsNow() {
     const list = visibleRows();
     const maxLat = Math.max(...list.filter((r) => r.latency != null).map((r) => r.latency), 1);
-    resultsBody.innerHTML = "";
-    if (!list.length) {
-      const tr = el("tr", "empty");
-      const td = el("td", null, rows.length ? "no rows match the filter." : "No scan yet — hit RUN SCAN.");
-      td.colSpan = 7;
-      tr.appendChild(td);
-      resultsBody.appendChild(tr);
-      return;
-    }
-    list.forEach((r, i) => {
+    // Hard cap what we paint; the full set stays in `rows` for export/filtering.
+    const CAP = 1500;
+    const shown = list.length > CAP ? list.slice(0, CAP) : list;
+    const frag = document.createDocumentFragment();
+    shown.forEach((r, i) => {
       const tr = el("tr", r.status === "ok" ? "row-ok" : "row-fail");
       tr.appendChild(el("td", null, String(i + 1)));
       tr.appendChild(el("td", null, r.target));
+      tr.appendChild(el("td", "geo-cell", r.country_name
+        ? `${flag(r.country)} ${r.country_name}` : "—"));
       const latCell = el("td");
       if (r.latency != null) {
         const wrap = el("div", "bar-cell");
@@ -3989,8 +4448,54 @@ _WEB_APP_JS = r"""/* ===========================================================
       const st = el("td");
       st.appendChild(statusPill(r.status));
       tr.appendChild(st);
-      resultsBody.appendChild(tr);
+      frag.appendChild(tr);
     });
+    if (list.length > CAP) {
+      const tr = el("tr", "empty");
+      const td = el("td", null, `showing first ${CAP} of ${list.length} — refine the filter to see more.`);
+      td.colSpan = 8;
+      tr.appendChild(td);
+      frag.appendChild(tr);
+    }
+    resultsBody.innerHTML = "";
+    if (!list.length) {
+      const tr = el("tr", "empty");
+      const td = el("td", null, rows.length ? "no rows match the filter." : "No scan yet — hit RUN SCAN.");
+      td.colSpan = 8;
+      tr.appendChild(td);
+      resultsBody.appendChild(tr);
+      return;
+    }
+    resultsBody.appendChild(frag);
+  }
+
+  function flag(cc) {
+    if (!cc || cc.length !== 2) return "🏳";
+    return String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1F1E6 + c.charCodeAt(0) - 65));
+  }
+
+  function renderPairs(msg) {
+    const box = $("reco");
+    const grid = $("reco-grid");
+    const groups = [];
+    if (msg.cross && msg.cross.length) groups.push(["Best diversity (different countries)", msg.cross]);
+    if (msg.same && msg.same.length) groups.push(["Fastest pair", msg.same]);
+    if (!groups.length) { box.hidden = true; return; }
+    grid.innerHTML = "";
+    groups.forEach(([title, pair]) => {
+      const card = el("div", "reco-card");
+      card.appendChild(el("div", "reco-title", title));
+      pair.forEach((p, i) => {
+        const row = el("div", "reco-row");
+        row.appendChild(el("span", "reco-rank", i === 0 ? "primary" : "backup"));
+        row.appendChild(el("span", "reco-ip", p.target));
+        row.appendChild(el("span", "reco-cc", `${flag(p.country)} ${p.country_name || "?"}`));
+        row.appendChild(el("span", "reco-ms", fmt(p.latency)));
+        card.appendChild(row);
+      });
+      grid.appendChild(card);
+    });
+    box.hidden = false;
   }
 
   function updateMetrics() {
@@ -4021,9 +4526,11 @@ _WEB_APP_JS = r"""/* ===========================================================
 
   $("export-csv").addEventListener("click", () => {
     if (!rows.length) { progressText.textContent = "nothing to export"; return; }
-    const head = "target,latency_ms,jitter_ms,loss_pct,status\n";
+    const head = "target,country,country_name,asn,latency_ms,jitter_ms,loss_pct,proto,status\n";
     const body = rows.map((r) =>
-      [r.target, r.latency ?? "", r.jitter ?? "", r.loss ?? "", r.status].join(",")).join("\n");
+      [r.target, r.country || "", r.country_name || "", r.asn || "",
+       r.latency ?? "", r.jitter ?? "", r.loss ?? "", r.proto_used || r.proto || "", r.status]
+        .join(",")).join("\n");
     const blob = new Blob([head + body], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -4158,8 +4665,11 @@ _WEB_APP_JS = r"""/* ===========================================================
       return kv("recommended MTU", r.mtu) + "\n" + kv("mode", r.mode) + "\n" +
              kv("interface", r.interface || "unknown");
     },
-    protocols: async (host) => {
-      const r = await post("/api/tools/protocols", { host, count: 3 });
+    protocols: async () => {
+      const dns = ($("tool-dns").value || "").trim();
+      if (!dns) return `<span class="err">enter a resolver IP to probe</span>`;
+      const probe = selectedProbes()[0] || "google";
+      const r = await post("/api/tools/protocols", { host: dns, probe, count: 3 });
       const res = r.results || {};
       const line = (k, label) => {
         const v = res[k];
@@ -4167,12 +4677,36 @@ _WEB_APP_JS = r"""/* ===========================================================
         const mark = v.ok ? `<span class="good">${v.ms} ms</span>` : `<span class="err">no reply</span>`;
         return kv(label, `${mark} · loss ${v.loss}%`);
       };
-      return [line("udp", "UDP :53"), line("tcp", "TCP :53"), line("tls", "DoT :853")]
-        .filter(Boolean).join("\n");
+      return kv("resolver", r.host) + "\n" + kv("resolving", r.probe) + "\n" +
+        [line("udp", "UDP :53"), line("tcp", "TCP :53"), line("tls", "DoT :853")]
+          .filter(Boolean).join("\n");
+    },
+    dig: async () => {
+      const dns = ($("tool-dns").value || "").trim();
+      if (!dns) return `<span class="err">enter a resolver IP to dig against</span>`;
+      const targets = selectedProbes();
+      if (!targets.length) return `<span class="err">pick at least one probe target</span>`;
+      const r = await post("/api/tools/dig", { dns, targets, timeout: 2.0 });
+      const blocks = (r.results || []).map((q) => {
+        const head = kv("dig", `@${r.server} ${q.host}`) +
+          (q.ms != null ? ` <span class="dim">(${q.ms} ms)</span>` : "");
+        if (!q.ok) return head + "\n" + `<span class="err">no response</span>`;
+        if (!q.answers.length) return head + "\n" + `<span class="err">no A records</span>`;
+        const rows = q.answers.filter((a) => a.type === 1).map((a) => `  ${a.value}  ttl ${a.ttl}`).join("\n");
+        return head + "\n" + (rows || `  ${q.answers[0].value}`);
+      });
+      return blocks.join("\n\n");
     },
   };
 
-  const hostFree = new Set(["mtu"]);
+  // 'protocols' probes a DNS server (from #tool-dns), not the host field.
+  const hostFree = new Set(["mtu", "protocols", "dig"]);
+
+  function selectedProbes() {
+    const sel = $("tool-probe");
+    const picked = [...sel.selectedOptions].map((o) => o.value).filter(Boolean);
+    return picked.slice(0, 3);
+  }
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.addEventListener("click", async () => {
       const tool = chip.dataset.tool;
@@ -4551,6 +5085,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     tickTimer: null,
     remaining: 0,
     interval: 60,
+    offset: 0,
   };
   const autoRing = $("auto-ring");
   const autoRingFg = $("auto-ring-fg");
@@ -4583,6 +5118,10 @@ _WEB_APP_JS = r"""/* ===========================================================
       workers: Math.max(1, Math.min(512, parseInt($("auto-workers").value, 10) || 64)),
       source: $("auto-source").value,
       maxCycles: Math.max(0, parseInt($("auto-cycles").value, 10) || 0),
+      probe: $("auto-probe").value || "google",
+      chunkSize: Math.max(0, parseInt($("auto-chunk").value, 10) || 0),
+      rotate: $("auto-rotate").checked,
+      geo: $("auto-geo").checked,
       alerts: $("auto-alert-on").checked,
       warnLat: parseFloat($("auto-warn-lat").value) || 120,
       alertJit: parseFloat($("auto-alert-jit").value) || 40,
@@ -4598,6 +5137,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     auto.maxCycles = cfg.maxCycles;
     auto.alertCount = 0;
     auto.interval = cfg.interval;
+    auto.offset = 0;
     $("auto-alert-count").textContent = "0";
     $("auto-cycles-run").textContent = "0";
     $("auto-state").textContent = "running";
@@ -4627,25 +5167,40 @@ _WEB_APP_JS = r"""/* ===========================================================
     auto.cycle += 1;
     $("auto-cycles-run").textContent = String(auto.cycle);
     $("auto-cycle-label").textContent = `cycle ${auto.cycle}`;
-    autoLog(`cycle ${auto.cycle}: scanning…`);
 
-    let targets = autoTargets();
-    if (targets === null) {
+    let all = autoTargets();
+    if (all === null) {
       try {
         const r = await getJSON("/api/dns-list");
-        targets = r.list || [];
-      } catch { targets = []; }
+        all = r.list || [];
+      } catch { all = []; }
     }
-    if (!targets.length) {
+    if (!all.length) {
       autoLog("no targets — set the scanner box or save a DNS list. Stopping.");
       autoStop();
       return;
     }
 
+    // Chunked rotation: test `chunkSize` servers per cycle, moving through the
+    // list so every server is exercised without hammering the whole list at once.
+    let targets = all;
+    let sliceNote = "";
+    if (cfg.chunkSize > 0 && all.length > cfg.chunkSize) {
+      if (!cfg.rotate || auto.offset >= all.length) auto.offset = 0;
+      const start = auto.offset;
+      targets = all.slice(start, start + cfg.chunkSize);
+      if (targets.length < cfg.chunkSize) {
+        targets = targets.concat(all.slice(0, cfg.chunkSize - targets.length));
+      }
+      sliceNote = ` [${start + 1}–${start + targets.length} of ${all.length}]`;
+      auto.offset = (start + cfg.chunkSize) % all.length;
+    }
+    autoLog(`cycle ${auto.cycle}: scanning ${targets.length} server(s)${sliceNote}…`);
+
     // drive the visible scanner so results stream in live
     const result = await runScan({
       targets, proto: cfg.proto, count: cfg.count, workers: cfg.workers,
-      timeout: 1.5, keepRows: false, silent: true,
+      timeout: 1.5, probe: cfg.probe, geo: cfg.geo, keepRows: false, silent: true,
     });
 
     const ok = result.filter((r) => r.status === "ok");
@@ -4812,6 +5367,30 @@ _WEB_APP_JS = r"""/* ===========================================================
       document.querySelector('.preset[data-preset="nexus"]').classList.add("active");
     }
   })();
+
+  /* ---------- probe targets (shared by scanner / auto-test / probe lab) ---- */
+  async function loadProbeTargets() {
+    let list = [{ key: "google", host: "google.com", label: "Google" }];
+    try {
+      const r = await getJSON("/api/probe-targets");
+      if (r.targets && r.targets.length) list = r.targets;
+    } catch {}
+    const opts = list.map((t) => `<option value="${t.key}">${t.label} (${t.host})</option>`).join("");
+    ["probe", "auto-probe", "tool-probe"].forEach((id) => {
+      const sel = $(id);
+      if (!sel) return;
+      if (sel.multiple) {
+        sel.innerHTML = opts;
+        // default to the first target selected so a dig works out of the box
+        if (sel.options.length) sel.options[0].selected = true;
+      } else {
+        const cur = sel.value;
+        sel.innerHTML = opts;
+        if (cur) sel.value = cur;
+      }
+    });
+  }
+  loadProbeTargets();
 
   /* ---------- seed ---------- */
   targetsBox.value = "8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, 1.0.0.1, 208.67.222.222";
@@ -5052,7 +5631,7 @@ def _dns_probe_protocol(ip, packet, count, timeout, kind):
             "loss": round((lost / count) * 100, 1), "jitter": round(jitter, 1)}
 
 
-def _web_ping_blocking(ip, count=3, timeout=1.5, proto="udp"):
+def _web_ping_blocking(ip, count=3, timeout=1.5, proto="udp", host="google.com"):
     """Blocking multi-protocol DNS probe — one thread per target.
 
     `async_ping_dns_core` performs a *blocking* recvfrom, so running it under
@@ -5060,9 +5639,10 @@ def _web_ping_blocking(ip, count=3, timeout=1.5, proto="udp"):
     scanner run many targets genuinely in parallel via a thread pool.
 
     proto: 'udp' | 'tcp' | 'tls' | 'both' (udp+tcp) | 'auto' (first that works).
+    host:  the name to resolve (probe target) — defaults to google.com.
     Returns a dict; the aggregate latency/loss/jitter come from the fastest
     protocol that answered."""
-    packet = _build_dns_query("google.com")
+    packet = _build_dns_query(host)
     proto = (proto or "udp").lower()
     if proto not in ("udp", "tcp", "tls", "both", "auto"):
         proto = "udp"
@@ -5264,7 +5844,7 @@ _WEB_AI_KEY = ""
 # Identify the console honestly to OpenRouter (and its WAF).
 _WEB_AI_TITLE = "NEXUS DNS Console"
 _WEB_AI_REFERER = "https://github.com/Onlyicing1/Dns"
-_WEB_UA = "NEXUS-DNS-Console/3.1 (+https://github.com/Onlyicing1/Dns)"
+_WEB_UA = "NEXUS-DNS-Console/3.2 (+https://github.com/Onlyicing1/Dns)"
 
 
 def _web_ai_analyze(api_key, model, prompt):
@@ -5448,7 +6028,7 @@ def _web_ai_models(force=False):
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.0"
+    server_version = "DnsConsole/3.2"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -5493,7 +6073,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.1"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.2"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -5523,6 +6103,17 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             free = [m for m in models if m["free"]]
             self._send_json({"models": models, "count": len(models),
                              "free_count": len(free)})
+        elif route == "/api/probe-targets":
+            self._send_json({"targets": [
+                {"key": k, "host": v[0], "label": v[1]}
+                for k, v in _WEB_PROBE_TARGETS.items()]})
+        elif route == "/api/geo":
+            ips = []
+            for raw in query.get("ips", [""])[0].split(","):
+                raw = raw.strip()
+                if raw:
+                    ips.append(raw)
+            self._send_json({"geo": _web_geo_bulk(ips[:500])} if ips else {"geo": {}})
         elif route == "/api/scan":
             self._stream_scan(query)
         elif route == "/api/apn/benchmark":
@@ -5550,7 +6141,11 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
 
         body = self._read_json()
 
-        if route == "/api/dns-list":
+        if route == "/api/scan":
+            # Large target lists are POSTed (a long GET query string is 414'd).
+            # Pass the parsed body through so the same streaming logic is reused.
+            self._stream_scan(parse_qs(urlparse(self.path).query), body)
+        elif route == "/api/dns-list":
             self._post_dns_list(body)
         elif route == "/api/profiles":
             self._post_profiles(body)
@@ -5600,6 +6195,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._post_tool_game(body)
         elif route == "/api/tools/protocols":
             self._post_tool_protocols(body)
+        elif route == "/api/tools/dig":
+            self._post_tool_dig(body)
         elif route == "/api/import":
             self._post_import(body)
         elif route == "/api/ai/analyze":
@@ -5702,13 +6299,39 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             count = max(1, min(10, int(body.get("count") or 3)))
         except (TypeError, ValueError):
             count = 3
-        packet = _build_dns_query("google.com")
-        results = {
-            "udp": _dns_probe_protocol(host, packet, count, 2.0, "udp"),
-            "tcp": _dns_probe_protocol(host, packet, count, 2.0, "tcp"),
-            "tls": _dns_probe_protocol(host, packet, count, 2.0, "tls"),
-        }
-        self._send_json({"host": host, "count": count, "results": results})
+        probe_host = _web_probe_host(body.get("probe") or "google")
+        r = _web_ping_blocking(host, count, 2.0, "both", probe_host)
+        # 'both' covers UDP+TCP; add a DoT pass explicitly for the full picture.
+        r["proto_results"]["tls"] = _dns_probe_protocol(
+            host, _build_dns_query(probe_host), count, 2.0, "tls")
+        self._send_json({"host": host, "probe": probe_host, "count": count,
+                         "results": r["proto_results"]})
+
+    def _post_tool_dig(self, body):
+        """Resolve the selected game/CDN target(s) through a chosen DNS server.
+
+        Mirrors `dig @server target` — one query per selected target, using the
+        resolver the user wants to test."""
+        dns_server = (body.get("dns") or body.get("server") or "1.1.1.1").strip()
+        raw_targets = body.get("targets")
+        if raw_targets is None:
+            raw_targets = [body.get("probe") or body.get("host") or "google"]
+        if isinstance(raw_targets, str):
+            raw_targets = [t for t in raw_targets.split(",") if t.strip()]
+        hosts = [_web_probe_host(t) for t in raw_targets][:3]
+        if not hosts:
+            hosts = ["google.com"]
+        try:
+            timeout = max(0.3, min(10.0, float(body.get("timeout") or 2.0)))
+        except (TypeError, ValueError):
+            timeout = 2.0
+        results = []
+        for h in hosts:
+            start = time.perf_counter()
+            r = _web_dig(h, dns_server, 1, timeout)
+            r["ms"] = round((time.perf_counter() - start) * 1000, 1)
+            results.append(r)
+        self._send_json({"server": dns_server, "results": results})
 
     def _post_tool_game(self, body):
         host = (body.get("host") or "").strip()
@@ -5728,36 +6351,53 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
                          "loss": round(loss, 1) if loss is not None else None, "ms": ms})
 
     # ---- SSE: chunked / parallel DNS scan ---------------------------------
-    def _stream_scan(self, query):
+    def _stream_scan(self, query, body=None):
         """Server-sent events: scan many DNS servers in bounded-parallel chunks,
-        streaming each result as it lands (scales to thousands of targets)."""
-        if query.get("dnslist", ["0"])[0] in ("1", "true", "yes"):
+        streaming each result as it lands (scales to thousands of targets).
+
+        GET supplies a small `targets` list in the query string; large lists are
+        POSTed in the body (a long GET query string is rejected with 414)."""
+        body = body or {}
+        if body.get("dnslist") or query.get("dnslist", ["0"])[0] in ("1", "true", "yes"):
             targets = list(load_dns_list())
         else:
-            targets = []
-            for raw in query.get("targets", [""])[0].split(","):
-                raw = raw.strip()
-                if raw:
-                    targets.append(raw)
+            raw_list = body.get("targets")
+            if raw_list is None:
+                raw_list = query.get("targets", [""])[0]
+            if isinstance(raw_list, str):
+                raw_list = raw_list.split(",")
+            targets = [str(t).strip() for t in raw_list if str(t).strip()]
         seen = set()
         targets = [t for t in targets if not (t in seen or seen.add(t))]
 
         def _int(name, default, lo, hi):
+            src = body.get(name)
+            if src is None:
+                src = query.get(name, [str(default)])[0]
             try:
-                return max(lo, min(hi, int(query.get(name, [str(default)])[0])))
+                return max(lo, min(hi, int(src)))
             except (TypeError, ValueError):
                 return default
 
         count = _int("count", 3, 1, 10)
         workers = _int("workers", 64, 1, 512)
         chunk = _int("chunk", 100, 1, 5000)
-        proto = (query.get("proto", ["udp"])[0] or "udp").lower()
+        max_targets = _int("max", 20000, 1, 200000)
+        proto = (body.get("proto") or query.get("proto", ["udp"])[0] or "udp").lower()
         if proto not in ("udp", "tcp", "tls", "both", "auto"):
             proto = "udp"
         try:
-            timeout = max(0.3, min(10.0, float(query.get("timeout", ["1.5"])[0])))
+            timeout = max(0.3, min(10.0, float(body.get("timeout")
+                        or query.get("timeout", ["1.5"])[0])))
         except (TypeError, ValueError):
             timeout = 1.5
+        probe_key = body.get("probe") or query.get("probe", ["google"])[0]
+        probe_host = _web_probe_host(probe_key)
+        want_geo = bool(body.get("geo")) or query.get("geo", ["0"])[0] in ("1", "true", "yes")
+
+        truncated = len(targets) > max_targets
+        if truncated:
+            targets = targets[:max_targets]
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -5775,13 +6415,14 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             _web_history_load()
             emit({"type": "start", "total": len(targets), "count": count,
                   "workers": workers, "chunk": chunk, "proto": proto,
-                  "timeout": timeout})
+                  "timeout": timeout, "probe": probe_host, "geo": want_geo,
+                  "truncated": truncated})
             if not targets:
                 emit({"type": "done", "summary": {"total": 0, "ok": 0, "failed": 0}})
                 return
 
             def run_one(target):
-                r = _web_ping_blocking(target, count, timeout, proto)
+                r = _web_ping_blocking(target, count, timeout, proto, probe_host)
                 latency, loss, jitter = r["latency"], r["loss"], r["jitter"]
                 ok = r["ok"]
                 _web_fold_history(target, latency if ok else 2000.0, loss, jitter)
@@ -5802,25 +6443,63 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             done = 0
             ok_count = 0
             best = None
+            alive_map = {}          # target -> result, for pair recommendations
             started = time.perf_counter()
+            # A sliding window keeps only ~2x the worker count of futures alive at
+            # once, so even 100k targets don't exhaust memory.
+            window = max(workers, workers * 2)
+            it = iter(targets)
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(run_one, t) for t in targets]
-                for fut in concurrent.futures.as_completed(futures):
-                    res = fut.result()
-                    done += 1
-                    if res["status"] == "ok":
-                        ok_count += 1
-                        if best is None or res["latency"] < best:
-                            best = res["latency"]
-                    emit(res)
-                    if done % chunk == 0 or done == len(targets):
-                        elapsed = time.perf_counter() - started
-                        emit({"type": "chunk", "done": done, "total": len(targets),
-                              "ok": ok_count, "best": best,
-                              "rate": round(done / elapsed, 1) if elapsed > 0 else 0})
-                    else:
-                        emit({"type": "progress", "done": done, "total": len(targets)})
+                pending = set()
+                for _ in range(min(window, len(targets))):
+                    t = next(it, None)
+                    if t is None:
+                        break
+                    pending.add(pool.submit(run_one, t))
+                while pending:
+                    done_set, pending = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for fut in done_set:
+                        res = fut.result()
+                        done += 1
+                        if res["status"] == "ok":
+                            ok_count += 1
+                            alive_map[res["target"]] = res
+                            if best is None or res["latency"] < best:
+                                best = res["latency"]
+                        emit(res)
+                        if done % chunk == 0 or done == len(targets):
+                            elapsed = time.perf_counter() - started
+                            emit({"type": "chunk", "done": done, "total": len(targets),
+                                  "ok": ok_count, "best": best,
+                                  "rate": round(done / elapsed, 1) if elapsed > 0 else 0})
+                        else:
+                            emit({"type": "progress", "done": done, "total": len(targets)})
+                        nxt = next(it, None)
+                        if nxt is not None:
+                            pending.add(pool.submit(run_one, nxt))
             _web_history_save()
+
+            # Optional geo enrichment (post-pass, streamed so the UI can fill in).
+            if want_geo and alive_map:
+                emit({"type": "geo-start", "total": len(alive_map)})
+                geo_done = 0
+                with concurrent.futures.ThreadPoolExecutor(max_workers=16) as gpool:
+                    gfuts = {gpool.submit(_web_geo_lookup, t): t for t in alive_map}
+                    for gfut in concurrent.futures.as_completed(gfuts):
+                        t = gfuts[gfut]
+                        try:
+                            g = gfut.result()
+                        except Exception:
+                            g = {"country": "", "country_name": "", "asn": "", "org": ""}
+                        alive_map[t].update(g)
+                        geo_done += 1
+                        emit({"type": "geo", "target": t, "country": g.get("country", ""),
+                              "country_name": g.get("country_name", ""),
+                              "asn": g.get("asn", ""), "org": g.get("org", ""),
+                              "done": geo_done, "total": len(alive_map)})
+                emit({"type": "pairs", **_web_recommend_pairs(list(alive_map.values()))})
+
             emit({"type": "summary", "rows": _web_stability_snapshot(top_n=25)})
             emit({"type": "done", "summary": {"total": done, "ok": ok_count,
                                               "failed": done - ok_count}})
