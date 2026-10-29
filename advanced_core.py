@@ -2541,10 +2541,11 @@ def menu():
         print(f"{ANSI_BLUE}[D]{ANSI_RESET} LOCAL NETWORK DIAGNOSIS {ANSI_DIM}(GATEWAY/PING){ANSI_RESET}")
         print(f"{ANSI_YELLOW}[A]{ANSI_RESET} LIVE APN BENCHMARK {ANSI_RED}(SHIZUKU){ANSI_RESET}")
         print(f"{ANSI_BLUE}[M]{ANSI_RESET} DNS MANAGER {ANSI_DIM}(ADD / DELETE / TEST){ANSI_RESET}")
+        print(f"{ANSI_CYAN}[W]{ANSI_RESET} OPEN LOCAL WEB CONSOLE {ANSI_DIM}(BROWSER UI){ANSI_RESET}")
         print(f"{ANSI_RED}[4]{ANSI_RESET} Exit")
         print(f"{ANSI_CYAN}{ANSI_BOLD}======================================================={ANSI_RESET}")
 
-        choice = input(f"{ANSI_BOLD}Select Option{ANSI_RESET} [1-4, D, A, M]: ").strip().lower()
+        choice = input(f"{ANSI_BOLD}Select Option{ANSI_RESET} [1-4, D, A, M, W]: ").strip().lower()
         if choice == '1':
             asyncio.run(run_advanced_telemetry_async())
         elif choice == '2':
@@ -2557,6 +2558,13 @@ def menu():
             run_live_apn_benchmark()
         elif choice == 'm':
             run_dns_manager()
+        elif choice == 'w':
+            try:
+                import web_server
+                web_server.main([])
+            except ImportError:
+                print(f"{ANSI_RED}[X] web_server.py not found next to this script.{ANSI_RESET}")
+                input(f"{ANSI_DIM}Press Enter to continue...{ANSI_RESET}")
         elif choice == '4':
             sys.exit(0)
 
