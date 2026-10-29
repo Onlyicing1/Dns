@@ -114,6 +114,7 @@ body {
 #panel-stability { animation-delay: .14s; }
 #panel-list { animation-delay: .2s; }
 #panel-tools { animation-delay: .26s; }
+#panel-device { animation-delay: .32s; }
 @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
 
 /* corner ticks */
@@ -274,6 +275,18 @@ table.results tr:hover td { background: rgba(55,245,212,0.05); }
 .tool-out .k { color: var(--acc); }
 .tool-out .v { color: var(--ink); }
 .tool-out .err { color: var(--danger); }
+
+/* ---- device panel ---- */
+.device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.dev-cell {
+  display: flex; flex-direction: column; gap: 3px;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px;
+  background: linear-gradient(180deg, rgba(55,245,212,0.03), transparent);
+}
+.dev-k { font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+.dev-v { font-size: 13px; color: var(--ink); word-break: break-all; }
+.dev-v.on { color: var(--good); }
+.dev-v.off { color: var(--dim-2); }
 
 /* ---- footer ---- */
 .footer {

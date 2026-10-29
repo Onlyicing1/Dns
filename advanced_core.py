@@ -1707,8 +1707,11 @@ class RetryHandler:
 
 _retry_handler = RetryHandler(max_retries=3, base_delay=0.5, max_delay=10.0, jitter=True)
 
-async def async_ping_dns_core(ip_address, port=53, count=3):
-    """Async DNS ping with circuit breaker and performance profiling."""
+async def async_ping_dns_core(ip_address, port=53, count=3, timeout=1.5):
+    """Async DNS ping with circuit breaker and performance profiling.
+
+    `timeout` is the per-query socket timeout (seconds); callers can lower it via
+    compute_adaptive_timeout() so slow servers don't stall the whole scan."""
     # Check circuit breaker
     breaker = get_dns_breaker(ip_address)
     if not breaker.allow_request():
@@ -1733,7 +1736,7 @@ async def async_ping_dns_core(ip_address, port=53, count=3):
                 start_time = time.perf_counter()
                 # Fresh blocking socket per query - much more reliable
                 qs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                qs.settimeout(1.5)
+                qs.settimeout(timeout)
                 qs.sendto(packet, (ip_address, port))
                 data, _ = qs.recvfrom(512)
                 end_time = time.perf_counter()
@@ -1759,13 +1762,13 @@ async def async_ping_dns_core(ip_address, port=53, count=3):
 
     return avg_latency, loss_percent, jitter
 
-async def measure_item_async(item):
+async def measure_item_async(item, timeout=1.5):
     res_item = dict(item)
     # ---- OPTIMIZATION: Protocol-aware ping — use UDP for game ports, TCP for standard ----
     # This is the key optimization: DNS ping alone doesn't measure game traffic latency.
     # For UDP-based games (Apex, Valorant, etc.), we ping the actual game ports.
-    p1_time, p1_loss, p1_jit = await async_ping_dns_core(res_item["pair"][0])
-    p2_time, p2_loss, p2_jit = (p1_time, p1_loss, p1_jit) if len(res_item["pair"]) < 2 else await async_ping_dns_core(res_item["pair"][1])
+    p1_time, p1_loss, p1_jit = await async_ping_dns_core(res_item["pair"][0], timeout=timeout)
+    p2_time, p2_loss, p2_jit = (p1_time, p1_loss, p1_jit) if len(res_item["pair"]) < 2 else await async_ping_dns_core(res_item["pair"][1], timeout=timeout)
     res_item["latency"] = (p1_time + p2_time) / 2
     res_item["loss"] = (p1_loss + p2_loss) / 2
     res_item["jitter"] = (p1_jit + p2_jit) / 2
@@ -2064,6 +2067,10 @@ async def run_download_cdn_telemetry_async():
                     current_pair_ips.append(ip_match.group(1))
                     c_match = _RE_COUNTRY.search(line)
                     current_pair_countries.append(c_match.group(1).upper() if c_match else "DE")
+        # Flush the final pair: the file's last entry has no trailing "### PAIR START"
+        # marker, so without this it would be dropped from the scan pool.
+        if current_pair_ips:
+            all_loaded_pairs.append({"pair": current_pair_ips, "country": current_pair_countries[0] if current_pair_countries else "DE"})
 
     pinned_list = load_pinned_list()
     loop = asyncio.get_running_loop()
@@ -2165,6 +2172,7 @@ async def run_download_cdn_telemetry_async():
                     elif cmd_clean == 'c':
                         pinned_list = []
                         _pinned_pair_set.clear()
+                        save_pinned_list(pinned_list)  # also clears the module-level cache
                         if os.path.exists(PINNED_FILE):
                             os.remove(PINNED_FILE)
                     elif cmd_clean == 'q':
@@ -2292,6 +2300,11 @@ async def run_advanced_telemetry_async():
                     current_pair_ips.append(ip_match.group(1))
                     c_match = _RE_COUNTRY.search(line)
                     current_pair_countries.append(c_match.group(1).upper() if c_match else "DE")
+        # Flush the final pair (the last entry has no trailing "### PAIR START" marker).
+        if current_pair_ips:
+            c_code = current_pair_countries[0] if current_pair_countries else "DE"
+            all_loaded_pairs.append({"pair": current_pair_ips, "country": c_code})
+            available_countries.add(c_code)
 
     sorted_countries = sorted(list(available_countries))
 
@@ -2350,8 +2363,9 @@ async def run_advanced_telemetry_async():
         # ---- OPTIMIZATION: Define measure_combined once outside the loop ----
         # This avoids recreating the closure every cycle, saving memory and GC pressure
         async def measure_combined(item):
-            dns_result = await measure_item_async(item)
-            game_result = await measure_game_latency_async(item, target_host, target_name)
+            dns_result = await measure_item_async(item, timeout=_adaptive_timeout)
+            # Pass dns_result (which carries "latency") so early termination works.
+            game_result = await measure_game_latency_async(dns_result, target_host, target_name)
             dns_result.update(game_result)
             return dns_result
 
@@ -2478,6 +2492,7 @@ async def run_advanced_telemetry_async():
                         elif cmd_clean == 'c':
                             pinned_list = []
                             _pinned_pair_set.clear()
+                            save_pinned_list(pinned_list)  # also clears the module-level cache
                             if os.path.exists(PINNED_FILE):
                                 os.remove(PINNED_FILE)
                         elif cmd_clean == 'q':
@@ -2569,4 +2584,12 @@ def menu():
             sys.exit(0)
 
 if __name__ == '__main__':
-    menu()
+    # `python advanced_core.py --web` jumps straight into the browser console.
+    if '--web' in sys.argv:
+        try:
+            import web_server
+            web_server.main([])
+        except ImportError:
+            print("web_server.py not found next to this script.")
+    else:
+        menu()

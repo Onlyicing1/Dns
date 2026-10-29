@@ -115,8 +115,25 @@
         <button class="chip" data-tool="tcp">TCP ping</button>
         <button class="chip" data-tool="tls">TLS handshake</button>
         <button class="chip" data-tool="http">HTTP GET</button>
+        <button class="chip" data-tool="mtu">MTU advice</button>
       </div>
       <div class="tool-out" id="tool-out">Pick a probe to test a host.</div>
+    </section>
+
+    <!-- ---------- DEVICE ---------- -->
+    <section class="panel" id="panel-device">
+      <div class="panel-head">
+        <h2><span class="idx">05</span> Device</h2>
+        <button class="ghost" id="refresh-device">refresh</button>
+      </div>
+      <p class="hint">Read-only snapshot via Shizuku (getprop / ip route).</p>
+      <div class="device-grid" id="device-grid">
+        <div class="dev-cell"><span class="dev-k">shizuku</span><span class="dev-v" id="dev-shizuku">…</span></div>
+        <div class="dev-cell"><span class="dev-k">operator</span><span class="dev-v" id="dev-operator">…</span></div>
+        <div class="dev-cell"><span class="dev-k">network</span><span class="dev-v" id="dev-net">…</span></div>
+        <div class="dev-cell"><span class="dev-k">interface</span><span class="dev-v" id="dev-iface">…</span></div>
+        <div class="dev-cell"><span class="dev-k">vpn tunnel</span><span class="dev-v" id="dev-vpn">…</span></div>
+      </div>
     </section>
   </main>
 

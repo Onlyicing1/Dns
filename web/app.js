@@ -277,6 +277,12 @@
       return r.ok ? kv("http", `${r.status} · ${r.ms} ms · ${r.bytes} bytes`)
                   : `<span class="err">http request failed</span>`;
     },
+    mtu: async () => {
+      const r = await fetch("/api/mtu").then((x) => x.json());
+      return kv("recommended MTU", `${r.mtu}`) + "\n" +
+             kv("mode", r.mode) + "\n" +
+             kv("interface", r.interface || "unknown");
+    },
   };
 
   async function post(path, body) {
@@ -287,20 +293,48 @@
     }).then((x) => x.json());
   }
 
+  const hostFree = new Set(["mtu"]); // tools that don't need a host
+
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.addEventListener("click", async () => {
+      const tool = chip.dataset.tool;
       const host = toolHost.value.trim();
-      if (!host) { renderTool(`<span class="err">enter a host first</span>`); return; }
+      if (!host && !hostFree.has(tool)) {
+        renderTool(`<span class="err">enter a host first</span>`);
+        return;
+      }
       document.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       renderTool("probing…");
       try {
-        renderTool(await tools[chip.dataset.tool](host));
+        renderTool(await tools[tool](host));
       } catch (e) {
         renderTool(`<span class="err">error: ${e}</span>`);
       }
     });
   });
+
+  /* ---------- device snapshot ---------- */
+  function setDev(id, value, cls) {
+    const node = $(id);
+    node.textContent = value == null || value === "" ? "—" : value;
+    node.className = "dev-v" + (cls ? " " + cls : "");
+  }
+
+  async function loadDevice() {
+    try {
+      const r = await fetch("/api/device").then((x) => x.json());
+      setDev("dev-shizuku", r.shizuku ? "running" : "not running", r.shizuku ? "on" : "off");
+      setDev("dev-operator", r.operator);
+      setDev("dev-net", r.network_type);
+      setDev("dev-iface", r.interface);
+      setDev("dev-vpn", r.vpn ? "yes" : "no", r.vpn ? "on" : "off");
+    } catch (e) {
+      setDev("dev-shizuku", "error", "off");
+    }
+  }
+  $("refresh-device").addEventListener("click", loadDevice);
+  loadDevice();
 
   /* ---------- keyboard: Enter in targets triggers scan on desktop ---------- */
   targetsBox.addEventListener("keydown", (e) => {
