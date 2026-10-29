@@ -27,6 +27,14 @@ python advanced_core.py --web --no-open          # don't auto-open; just print t
 python advanced_core.py --web --all              # bind 0.0.0.0 so other devices on your LAN can open it
 python advanced_core.py --web --background       # no auto-open (for boot scripts)
 python advanced_core.py --web --install-autostart # (Termux) start automatically at boot via Termux:Boot
+python advanced_core.py --web --api-key sk-or-... # default OpenRouter key for AI analysis
+```
+
+For AI analysis you can also export the key instead of passing the flag:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+python advanced_core.py --web
 ```
 
 On Termux it opens automatically via `termux-open-url` (install `termux-tools`);
@@ -60,6 +68,15 @@ will come up on your LAN automatically.
   APN, tests each, then restores the original (Shizuku; confirm-gated).
 - **Game Profiles** — add/remove profiles (shared with the CLI).
 - **Diagnosis** — reference-host + gateway reachability with a quality rating.
+- **Import DNS list** — drop or paste **any** file and every DNS server in it is
+  detected. Handles plain text, CSV, JSON, logs, HTML/XML, UTF-16, gzip, and ZIP
+  containers (`.zip`, `.xlsx`, `.ods`, `.docx`). Then save the list or scan it
+  straight away.
+- **AI Analysis (OpenRouter)** — send your scan or history to an OpenRouter model
+  for a plain-English ranking and a primary/backup recommendation. Paste a key in
+  the UI (kept in your browser) or start the server with `--api-key` /
+  `$OPENROUTER_API_KEY`.
 
 Everything runs on your machine; no external services, no dependencies beyond
-the Python standard library.
+the Python standard library. The only outbound call is to OpenRouter, and only
+when you click an AI button.

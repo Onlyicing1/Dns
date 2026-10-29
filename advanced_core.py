@@ -2571,9 +2571,13 @@ def manage_custom_profiles():
 #    GET  /api/scan         SSE: chunked, parallel DNS scan (targets/count/
 #                           workers/chunk/dnslist)
 #    GET  /api/apn/benchmark SSE: live APN benchmark (needs confirm=1)
+#    GET  /api/ai/status    whether a server-side OpenRouter key is configured
 #    POST /api/dns-list     {add|add[], delete, clear}
 #    POST /api/profiles     {add:{name,host}} | {delete:name}
 #    POST /api/history/clear
+#    POST /api/import       extract DNS servers from any file (multipart file=…
+#                           OR JSON {filename, content:base64} / {filename, text})
+#    POST /api/ai/analyze   {api_key?, model?, results:[…]} -> OpenRouter analysis
 #    POST /api/tools/{resolve,tcp,tls,http,game}
 # ============================================================
 
@@ -2705,6 +2709,28 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
   </section>
 
   <main class="grid">
+    <!-- ---------- 00 IMPORT ---------- -->
+    <section class="panel span-2 accent-violet" id="panel-import">
+      <div class="panel-head">
+        <h2><span class="idx">00</span> Import DNS list</h2>
+        <div class="head-actions">
+          <button class="ghost" id="import-save">save to list</button>
+          <button class="ghost" id="import-scan">scan now</button>
+        </div>
+      </div>
+      <p class="hint">Drop any file — .txt, .csv, .json, .log, .md, .xml, .html, .zip, .gz, .xlsx, .docx and more. Every IPv4 address (and known resolver hostname) is detected.</p>
+      <div class="drop" id="drop">
+        <input type="file" id="file" hidden multiple />
+        <div class="drop-icon">⤓</div>
+        <div class="drop-text">Drop files here or <span class="link" id="browse">browse</span></div>
+        <div class="drop-sub">or paste raw text below</div>
+      </div>
+      <textarea id="paste-import" class="bulk" spellcheck="false"
+        placeholder="…or paste anything containing DNS servers (text, config dumps, logs)"></textarea>
+      <button class="ghost wide" id="import-paste">extract from pasted text</button>
+      <div class="import-out" id="import-out">No file imported yet.</div>
+    </section>
+
     <!-- ---------- 01 SCANNER ---------- -->
     <section class="panel span-2 accent-cyan" id="panel-scanner">
       <div class="panel-head">
@@ -2871,6 +2897,31 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <button class="ghost" id="diag-run">run</button>
       </div>
       <div class="tool-out" id="diag-out">Run the local network diagnosis (reference host + gateway).</div>
+    </section>
+
+    <!-- ---------- 10 AI ANALYSIS ---------- -->
+    <section class="panel accent-pink span-2" id="panel-ai">
+      <div class="panel-head">
+        <h2><span class="idx">10</span> AI Analysis <span class="badge ai-badge" id="ai-badge">OpenRouter</span></h2>
+        <div class="head-actions">
+          <button class="ghost" id="ai-analyse">analyse scan</button>
+          <button class="ghost" id="ai-ask">ask about results</button>
+        </div>
+      </div>
+      <p class="hint">Send your latest scan (or the whole stability history) to an OpenRouter model for recommendations. The key stays in your browser unless you start the server with one.</p>
+      <div class="ai-config">
+        <label class="field wide-field"><span>OpenRouter API key</span>
+          <input type="password" id="ai-key" placeholder="sk-or-… (stored locally in this browser)" spellcheck="false" />
+        </label>
+        <label class="field wide-field"><span>model</span>
+          <input type="text" id="ai-model" value="openai/gpt-4o-mini" spellcheck="false" />
+        </label>
+        <label class="chk"><input type="checkbox" id="ai-remember" checked /> remember key</label>
+      </div>
+      <div class="tool-row">
+        <input type="text" id="ai-question" placeholder="optional: ask something specific, e.g. “best for gaming in EU?”" spellcheck="false" />
+      </div>
+      <div class="ai-out" id="ai-out">Run a scan, then hit ANALYSE SCAN for an AI recommendation.</div>
     </section>
   </main>
 
@@ -3266,6 +3317,34 @@ table.results tr:hover td { background: rgba(150,130,255,0.08); }
 .apn-list li.cur { border-color: var(--green); box-shadow: 0 0 0 1px rgba(70,245,160,0.3); }
 .apn-list li.ok { border-color: rgba(70,245,160,0.5); }
 .apn-list li.bad { border-color: rgba(255,92,122,0.5); }
+
+/* ---- import / drop zone ---- */
+.drop {
+  border: 2px dashed var(--line-strong); border-radius: 14px; padding: 26px 18px;
+  text-align: center; cursor: pointer; transition: border-color .18s, background .18s, transform .12s;
+  background: linear-gradient(120deg, rgba(166,120,255,0.06), rgba(53,230,255,0.06));
+}
+.drop:hover, .drop.over { border-color: var(--violet); background: rgba(166,120,255,0.14); transform: translateY(-1px); }
+.drop-icon { font-size: 30px; color: var(--violet); line-height: 1; }
+.drop-text { margin-top: 6px; color: var(--ink); font-weight: 600; }
+.drop-sub { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+.link { color: var(--cyan); text-decoration: underline; cursor: pointer; }
+.import-out, .ai-out {
+  margin-top: 12px; border: 1px solid var(--line); border-radius: 11px; padding: 13px 14px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--dim); min-height: 54px;
+  white-space: pre-wrap; background: rgba(0,0,0,0.28); max-height: 340px; overflow-y: auto;
+}
+.import-out .ok, .ai-out .ok { color: var(--green); }
+.import-out .err, .ai-out .err { color: var(--danger); }
+.ai-out h4 { color: var(--cyan); font-family: var(--display); margin: 10px 0 4px; }
+.ai-out strong { color: var(--ink); }
+.ai-out code { color: var(--amber); }
+
+/* ---- AI config ---- */
+.ai-config { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+.field.wide-field { width: auto; flex: 1 1 240px; }
+.field.wide-field input { text-align: left; }
+.ai-badge { background: linear-gradient(90deg, var(--pink), var(--violet)); color: #fff; }
 
 /* ---- footer ---- */
 .footer {
@@ -3809,6 +3888,137 @@ _WEB_APP_JS = r"""/* ===========================================================
     } catch (e) { out.textContent = "error: " + e; }
   });
 
+  /* ============================================================
+     IMPORT (any file format)
+     ============================================================ */
+  const importOut = $("import-out");
+  let imported = [];
+
+  function renderImport(data) {
+    imported = data.found || [];
+    if (!imported.length) {
+      importOut.innerHTML = `<span class="err">No DNS servers found` +
+        (data.filename ? ` in ${data.filename}` : "") + `.</span>`;
+      return;
+    }
+    const preview = imported.slice(0, 40).map((ip) => `<code>${ip}</code>`).join("  ");
+    const more = imported.length > 40 ? `\n…and ${imported.length - 40} more` : "";
+    importOut.innerHTML =
+      `<span class="ok">Found ${imported.length} DNS server(s)</span>` +
+      (data.filename ? ` in <strong>${data.filename}</strong>` : "") +
+      ` (${data.bytes ? (data.bytes / 1024).toFixed(1) + " KB" : "text"}).\n\n${preview}${more}`;
+  }
+
+  async function importFiles(files) {
+    if (!files || !files.length) return;
+    importOut.textContent = `reading ${files.length} file(s)…`;
+    let all = [];
+    let names = [];
+    for (const f of files) {
+      try {
+        const fd = new FormData();
+        fd.append("file", f, f.name);
+        const r = await fetch("/api/import", { method: "POST", body: fd }).then((x) => x.json());
+        if (r.found) { all = all.concat(r.found); names.push(f.name); }
+        else if (r.error) importOut.innerHTML = `<span class="err">${r.error}</span>`;
+      } catch (e) { importOut.innerHTML = `<span class="err">${f.name}: ${e}</span>`; }
+    }
+    imported = [...new Set(all)];
+    renderImport({ found: imported, filename: names.join(", "), bytes: 0 });
+  }
+
+  const drop = $("drop");
+  const fileInput = $("file");
+  drop.addEventListener("click", () => fileInput.click());
+  $("browse").addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
+  fileInput.addEventListener("change", () => importFiles(fileInput.files));
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => importFiles(e.dataTransfer.files));
+
+  $("import-paste").addEventListener("click", async () => {
+    const text = $("paste-import").value.trim();
+    if (!text) { importOut.textContent = "paste some text first."; return; }
+    const r = await post("/api/import", { filename: "(pasted text)", text });
+    renderImport(r);
+  });
+
+  $("import-save").addEventListener("click", async () => {
+    if (!imported.length) { importOut.textContent = "import something first."; return; }
+    const r = await post("/api/dns-list", { add: imported });
+    renderDnsList(r.list);
+    importOut.innerHTML += `\n<span class="ok">→ saved to your DNS list (${r.count} total).</span>`;
+  });
+
+  $("import-scan").addEventListener("click", () => {
+    if (!imported.length) { importOut.textContent = "import something first."; return; }
+    targetsBox.value = imported.join("\n");
+    document.getElementById("panel-scanner").scrollIntoView({ behavior: "smooth" });
+    runScan();
+  });
+
+  /* ============================================================
+     AI ANALYSIS (OpenRouter)
+     ============================================================ */
+  const aiOut = $("ai-out");
+  const aiKey = $("ai-key");
+  const aiModel = $("ai-model");
+
+  const savedKey = localStorage.getItem("openrouter_key");
+  if (savedKey) aiKey.value = savedKey;
+  const savedModel = localStorage.getItem("openrouter_model");
+  if (savedModel) aiModel.value = savedModel;
+
+  getJSON("/api/ai/status").then((r) => {
+    if (r.server_key) $("ai-badge").textContent = "key on server";
+  }).catch(() => {});
+
+  function mdLite(text) {
+    const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return esc
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`(.+?)`/g, "<code>$1</code>")
+      .replace(/^###?\s+(.*)$/gm, "<h4>$1</h4>")
+      .replace(/^\s*[-*]\s+(.*)$/gm, "• $1");
+  }
+
+  async function runAI(withQuestion) {
+    const key = aiKey.value.trim();
+    const remember = $("ai-remember").checked;
+    if (remember && key) localStorage.setItem("openrouter_key", key);
+    else if (!remember) localStorage.removeItem("openrouter_key");
+    if (aiModel.value.trim()) localStorage.setItem("openrouter_model", aiModel.value.trim());
+
+    const results = rows.length ? rows : null;
+    if (!results && !$("ai-question").value.trim()) {
+      aiOut.innerHTML = `<span class="err">Run a scan first (or type a question).</span>`;
+      return;
+    }
+    const payload = { api_key: key, model: aiModel.value.trim(), results: results || [] };
+    const q = $("ai-question").value.trim();
+    if (q) payload.prompt = (results ? "DNS scan results:\n" +
+      (results || []).map((r) => `- ${r.target}: ${r.latency ?? "unreachable"} ms, jitter ${r.jitter ?? "?"}, loss ${r.loss ?? "?"}%`).join("\n") + "\n\n" : "") + q;
+
+    aiOut.textContent = "thinking… (contacting OpenRouter)";
+    try {
+      const r = await post("/api/ai/analyze", payload);
+      if (r.error) {
+        aiOut.innerHTML = `<span class="err">${r.error}</span>` +
+          (r.detail ? `\n${r.detail}` : "") +
+          (r.error.includes("key") ? `\n<span class="ok">Tip: start the server with --api-key or $OPENROUTER_API_KEY.</span>` : "");
+        return;
+      }
+      aiOut.innerHTML = mdLite(r.analysis || "(empty response)") +
+        (r.model ? `\n\n— ${r.model}` : "");
+    } catch (e) { aiOut.innerHTML = `<span class="err">request failed: ${e}</span>`; }
+  }
+
+  $("ai-analyse").addEventListener("click", () => runAI(false));
+  $("ai-ask").addEventListener("click", () => runAI(true));
+  $("ai-question").addEventListener("keydown", (e) => { if (e.key === "Enter") runAI(true); });
+
   /* ---------- seed ---------- */
   targetsBox.value = "8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, 1.0.0.1, 208.67.222.222";
 })();
@@ -4036,10 +4246,196 @@ def _web_stability_snapshot(top_n=10):
 
 
 # --------------------------------------------------------------------------
+#  DNS extraction from uploaded files (any text-like format)
+# --------------------------------------------------------------------------
+_IPV4_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+_HOST_RE = re.compile(
+    r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24}\b")
+# Well-known public resolver hostnames (hostnames are only accepted when they
+# match this set, so we never mistake arbitrary prose domains for resolvers).
+_KNOWN_DNS_HOSTS = {
+    "dns.google", "one.one.one.one", "one.one.one.one.", "cloudflare-dns.com",
+    "dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net",
+    "doh.opendns.com", "doh.familyshield.opendns.com", "dns.adguard.com",
+    "dns.adguard-dns.com", "dns-family.adguard.com", "unfiltered.adguard-dns.com",
+    "doh.mullvad.net", "dns.mullvad.net", "dns.nextdns.io", "dot.pub",
+    "dns.sb", "dot.sb", "dnslow.me", "dns.alidns.com", "doh.360.cn",
+    "dns.comss.one", "doh.dns.sb", "dns.controld.com", "freedns.controld.com",
+    "dns.cleanbrowsing.org", "doh.cleanbrowsing.org", "get.dns.owlapps.net",
+    "dns.dnshome.de", "dnsforge.de", "dot.dnsforge.de", "resolver-eu.lelux.fi",
+    "dns.launchpad.net", "anycast.censurfridns.dk", "dns.njal.la",
+    "doh.libredns.gr", "dns.libredns.gr", "dns.east.comcast.net",
+}
+
+
+def _web_valid_ipv4(s):
+    parts = s.split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not p.isdigit():
+            return False
+        v = int(p)
+        if v < 0 or v > 255:
+            return False
+        if len(p) > 1 and p[0] == "0":
+            return False
+    return True
+
+
+def _web_extract_dns(text, limit=500000):
+    """Pull every IPv4 address (and known resolver hostname) out of arbitrary text."""
+    if not text:
+        return []
+    text = text.replace("\x00", " ")
+    out, seen = [], set()
+    for m in _IPV4_RE.finditer(text):
+        cand = m.group(0)
+        if _web_valid_ipv4(cand) and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    for m in _HOST_RE.finditer(text):
+        host = m.group(0).lower()
+        if host in _KNOWN_DNS_HOSTS and host not in seen:
+            seen.add(host)
+            out.append(host)
+    return out[:limit]
+
+
+def _web_decode_bytes(data):
+    """Decode bytes to text, BOM-aware, falling back to latin-1 (never fails)."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            return data.decode("utf-16")
+        except UnicodeDecodeError:
+            pass
+    for enc in ("utf-8-sig", "utf-8"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("latin-1", "ignore")
+
+
+def _web_text_from_upload(data, filename):
+    """Return readable text from an uploaded file of (almost) any format.
+
+    Handles UTF-8/UTF-16/Latin-1 plain text, gzip, and ZIP containers
+    (.zip/.xlsx/.ods/.docx — the shared strings and inline text live inside)."""
+    low = (filename or "").lower()
+    chunks = []
+    if data[:4] == b"PK\x03\x04":
+        try:
+            import io
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    if name.endswith("/"):
+                        continue
+                    try:
+                        chunks.append(_web_decode_bytes(z.read(name)))
+                    except Exception:
+                        continue
+        except Exception:
+            chunks = []
+    elif data[:2] == b"\x1f\x8b":
+        try:
+            import gzip
+            chunks = [_web_decode_bytes(gzip.decompress(data))]
+        except Exception:
+            chunks = []
+    if not chunks:
+        chunks = [_web_decode_bytes(data)]
+    return "\n".join(chunks)
+
+
+def _web_parse_multipart(body, content_type):
+    """Minimal multipart/form-data parser (enough for one file upload)."""
+    m = re.search(r"boundary=([^;]+)", content_type or "")
+    if not m:
+        return None, ""
+    boundary = m.group(1).strip().strip('"').encode("latin-1")
+    filename = ""
+    delim = b"--" + boundary
+    for part in body.split(delim):
+        if b"\r\n\r\n" not in part:
+            continue
+        head, _, payload = part.partition(b"\r\n\r\n")
+        payload = payload.rstrip(b"\r\n")
+        if payload.endswith(b"--"):
+            payload = payload[:-2]
+        fn = re.search(rb'filename="([^"]*)"', head)
+        if fn:
+            filename = fn.group(1).decode("latin-1", "ignore")
+            return payload, filename
+    return None, ""
+
+
+# --------------------------------------------------------------------------
+#  OpenRouter AI analysis
+# --------------------------------------------------------------------------
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+_AI_DEFAULT_MODEL = "openai/gpt-4o-mini"
+# Default key set from --api-key / $OPENROUTER_API_KEY; the UI can override per request.
+_WEB_AI_KEY = ""
+
+
+def _web_ai_analyze(api_key, model, prompt):
+    """Call OpenRouter's chat completions API and return (text, model, usage)."""
+    payload = json.dumps({
+        "model": model or _AI_DEFAULT_MODEL,
+        "messages": [
+            {"role": "system", "content":
+             "You are a senior network engineer analysing DNS resolver benchmark "
+             "results. Be concise and practical. Rank the resolvers, explain the "
+             "latency/jitter/loss trade-offs, and recommend a primary and a backup "
+             "resolver. Use short sections and bullet points."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        OPENROUTER_URL, data=payload,
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost/",
+            "X-Title": "NEXUS DNS Console",
+        })
+    with urllib.request.urlopen(req, timeout=90) as res:
+        data = json.loads(res.read().decode("utf-8"))
+    choice = (data.get("choices") or [{}])[0]
+    text = (choice.get("message") or {}).get("content", "")
+    return text, data.get("model"), data.get("usage")
+
+
+def _web_build_ai_prompt(body):
+    """Turn structured scan results (or a raw prompt) into an analysis prompt."""
+    if body.get("prompt"):
+        return str(body["prompt"])[:20000]
+    rows = body.get("results") or body.get("rows") or []
+    lines = ["Here are DNS resolver benchmark results (latency/jitter/loss in ms/%):", ""]
+    for r in rows[:200]:
+        if not isinstance(r, dict):
+            continue
+        lat = r.get("latency")
+        if lat is None:
+            lines.append(f"- {r.get('target','?')}: unreachable (loss {r.get('loss','?')}%)")
+        else:
+            lines.append(f"- {r.get('target','?')}: latency {lat} ms, "
+                         f"jitter {r.get('jitter','?')} ms, loss {r.get('loss','?')}%")
+    ctx = body.get("context")
+    if ctx:
+        lines += ["", "Network context:", str(ctx)[:2000]]
+    lines += ["", "Recommend the best primary and backup DNS servers and why."]
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/2.0"
+    server_version = "DnsConsole/3.0"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -4084,7 +4480,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "2.0"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.0"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -4107,6 +4503,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
                              "current": get_current_preferred_apn_id()})
         elif route == "/api/diagnosis":
             self._send_json(_web_diagnosis())
+        elif route == "/api/ai/status":
+            self._send_json({"server_key": bool(_WEB_AI_KEY)})
         elif route == "/api/scan":
             self._stream_scan(query)
         elif route == "/api/apn/benchmark":
@@ -4117,6 +4515,21 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
     # ---- POST -------------------------------------------------------------
     def do_POST(self):
         route = urlparse(self.path).path
+        ctype = self.headers.get("Content-Type", "")
+        # multipart/form-data (native browser file upload) takes priority.
+        if route == "/api/import" and ctype.startswith("multipart/form-data"):
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            payload, filename = _web_parse_multipart(raw, ctype)
+            if payload is None:
+                self._send_json({"error": "no file in upload"}, 400)
+                return
+            text = _web_text_from_upload(payload, filename)
+            found = _web_extract_dns(text)
+            self._send_json({"filename": filename, "found": found, "count": len(found),
+                             "total_scanned": len(found), "bytes": len(payload)})
+            return
+
         body = self._read_json()
 
         if route == "/api/dns-list":
@@ -4167,10 +4580,64 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"url": url, "ok": ok, "status": status, "ms": ms, "bytes": size})
         elif route == "/api/tools/game":
             self._post_tool_game(body)
+        elif route == "/api/import":
+            self._post_import(body)
+        elif route == "/api/ai/analyze":
+            self._post_ai_analyze(body)
         else:
             self._send_json({"error": "unknown route"}, 404)
 
     # ---- POST helpers -----------------------------------------------------
+    def _post_import(self, body):
+        """Extract DNS servers from a filename + (optionally base64) file content."""
+        filename = body.get("filename") or body.get("name") or ""
+        content = body.get("content")
+        data = None
+        if content is not None:
+            try:
+                import base64
+                data = base64.b64decode(content, validate=False)
+            except Exception:
+                self._send_json({"error": "could not decode content"}, 400)
+                return
+        elif body.get("text"):
+            text = str(body["text"])
+            found = _web_extract_dns(text)
+            self._send_json({"filename": filename, "found": found,
+                             "count": len(found), "total_scanned": len(found)})
+            return
+        else:
+            self._send_json({"error": "content or text required"}, 400)
+            return
+
+        text = _web_text_from_upload(data, filename)
+        found = _web_extract_dns(text)
+        self._send_json({"filename": filename, "found": found, "count": len(found),
+                         "total_scanned": len(found), "bytes": len(data)})
+
+    def _post_ai_analyze(self, body):
+        key = (body.get("api_key") or "").strip() or _WEB_AI_KEY
+        model = (body.get("model") or "").strip()
+        if not key:
+            self._send_json({"error": "OpenRouter API key required (set one in the UI or "
+                                      "start with --api-key / $OPENROUTER_API_KEY)"}, 400)
+            return
+        prompt = _web_build_ai_prompt(body)
+        try:
+            text, used_model, usage = _web_ai_analyze(key, model, prompt)
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "ignore")[:400]
+            except Exception:
+                pass
+            self._send_json({"error": f"OpenRouter HTTP {e.code}", "detail": detail}, 502)
+            return
+        except Exception as e:
+            self._send_json({"error": f"AI request failed: {e}"}, 502)
+            return
+        self._send_json({"analysis": text, "model": used_model, "usage": usage})
+
     def _post_dns_list(self, body):
         dns_list = list(load_dns_list())
         if body.get("clear"):
@@ -4248,9 +4715,10 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
+        self.close_connection = True
 
         def emit(obj):
             self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
@@ -4318,9 +4786,10 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
+        self.close_connection = True
 
         def emit(obj):
             self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
@@ -4433,7 +4902,13 @@ def web_console_main(argv=None):
                         help="start hidden (no auto-open, suitable for Termux:Boot)")
     parser.add_argument("--install-autostart", action="store_true",
                         help="(Termux) install a Termux:Boot script that starts this console at boot")
+    parser.add_argument("--api-key", default="",
+                        help="default OpenRouter API key for AI analysis (overridable in the UI)")
     args = parser.parse_args(argv)
+
+    # Seed the AI key from the CLI/env (env wins over flag only if the flag is empty).
+    global _WEB_AI_KEY
+    _WEB_AI_KEY = args.api_key or os.environ.get("OPENROUTER_API_KEY", "")
 
     if args.install_autostart:
         _web_install_termux_autostart()
@@ -4476,7 +4951,6 @@ def web_console_main(argv=None):
 def launch_web_console(extra_args=None):
     """Start the embedded local web console (see web_console_main)."""
     web_console_main([] if extra_args is None else extra_args)
-
 
 
 # ============================================================
