@@ -2601,6 +2601,9 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 
   <header class="topbar">
     <div class="brand">
+      <button class="burger" id="burger" aria-label="open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
       <span class="pulse-dot" id="conn-dot"></span>
       <h1>NEXUS<span class="thin">DNS</span></h1>
       <span class="tag">local node</span>
@@ -2610,6 +2613,33 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="status" id="conn-text">connecting…</div>
     </div>
   </header>
+
+  <!-- ---------- NAV DRAWER ---------- -->
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="section navigation" aria-hidden="true">
+    <div class="drawer-head">
+      <span class="drawer-title">Sections</span>
+      <button class="drawer-close" id="drawer-close" aria-label="close menu">✕</button>
+    </div>
+    <nav class="drawer-nav" id="drawer-nav">
+      <a data-target="panel-import"     href="#panel-import"><span class="di">00</span> Import DNS list</a>
+      <a data-target="panel-scanner"    href="#panel-scanner"><span class="di">01</span> Bulk Scanner</a>
+      <a data-target="panel-autotest"   href="#panel-autotest"><span class="di">02</span> Auto-Test</a>
+      <a data-target="panel-stability"  href="#panel-stability"><span class="di">03</span> Stability</a>
+      <a data-target="panel-list"       href="#panel-list"><span class="di">04</span> Saved DNS</a>
+      <a data-target="panel-tools"      href="#panel-tools"><span class="di">05</span> Probe Lab</a>
+      <a data-target="panel-network"    href="#panel-network"><span class="di">06</span> Network · VPN</a>
+      <a data-target="panel-device"     href="#panel-device"><span class="di">07</span> Device</a>
+      <a data-target="panel-apn"        href="#panel-apn"><span class="di">08</span> APN Benchmark</a>
+      <a data-target="panel-profiles"   href="#panel-profiles"><span class="di">09</span> Game Profiles</a>
+      <a data-target="panel-diagnosis"  href="#panel-diagnosis"><span class="di">10</span> Diagnosis</a>
+      <a data-target="panel-ai"         href="#panel-ai"><span class="di">11</span> AI Analysis</a>
+      <a data-target="panel-appearance" href="#panel-appearance"><span class="di">12</span> Appearance</a>
+    </nav>
+    <div class="drawer-foot">
+      <span id="drawer-port">—</span>
+    </div>
+  </aside>
 
   <!-- ---------- HERO / MASCOT ---------- -->
   <section class="hero">
@@ -2751,6 +2781,16 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <label class="field"><span>packets</span><input type="number" id="count" min="1" max="10" value="3" /></label>
         <label class="field"><span>workers</span><input type="number" id="workers" min="1" max="512" value="64" /></label>
         <label class="field"><span>chunk</span><input type="number" id="chunk" min="1" max="5000" value="100" /></label>
+        <label class="field"><span>protocol</span>
+          <select id="proto" class="sel sm">
+            <option value="udp">UDP (53)</option>
+            <option value="tcp">TCP (53)</option>
+            <option value="tls">TLS / DoT (853)</option>
+            <option value="both">UDP + TCP</option>
+            <option value="auto">Auto (first that works)</option>
+          </select>
+        </label>
+        <label class="field"><span>timeout s</span><input type="number" id="timeout" min="0.3" max="10" step="0.1" value="1.5" /></label>
         <button class="primary" id="run"><span class="run-label">RUN SCAN</span></button>
       </div>
 
@@ -2774,19 +2814,93 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="table-wrap">
         <table class="results" id="results">
           <thead>
-            <tr><th>#</th><th>DNS Server</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Status</th></tr>
+            <tr><th>#</th><th>DNS Server</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Proto</th><th>Status</th></tr>
           </thead>
           <tbody id="results-body">
-            <tr class="empty"><td colspan="6">No scan yet — hit RUN SCAN.</td></tr>
+            <tr class="empty"><td colspan="7">No scan yet — hit RUN SCAN.</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- ---------- 02 STABILITY ---------- -->
+    <!-- ---------- 02 AUTO-TEST ---------- -->
+    <section class="panel span-2 accent-amber" id="panel-autotest">
+      <div class="panel-head">
+        <h2><span class="idx">02</span> Auto-Test <span class="badge" id="auto-state">idle</span></h2>
+        <div class="head-actions">
+          <button class="primary small" id="auto-start"><span class="run-label">START</span></button>
+          <button class="ghost" id="auto-stop">stop</button>
+        </div>
+      </div>
+      <p class="hint">Runs the scan on a timer, forever. Fully customizable — interval, protocol, packets, jitter/latency alert thresholds.</p>
+
+      <div class="auto-grid">
+        <label class="field"><span>interval</span>
+          <div class="with-unit"><input type="number" id="auto-interval" min="5" max="86400" value="60" /><em>s</em></div>
+        </label>
+        <label class="field"><span>protocol</span>
+          <select id="auto-proto" class="sel sm">
+            <option value="udp">UDP (53)</option>
+            <option value="tcp">TCP (53)</option>
+            <option value="tls">TLS / DoT (853)</option>
+            <option value="both">UDP + TCP</option>
+            <option value="auto">Auto (first that works)</option>
+          </select>
+        </label>
+        <label class="field"><span>packets</span><input type="number" id="auto-count" min="1" max="10" value="3" /></label>
+        <label class="field"><span>workers</span><input type="number" id="auto-workers" min="1" max="512" value="64" /></label>
+        <label class="field"><span>source</span>
+          <select id="auto-source" class="sel sm">
+            <option value="targets">scanner box</option>
+            <option value="list">saved DNS list</option>
+          </select>
+        </label>
+        <label class="field"><span>cycles</span>
+          <select id="auto-cycles" class="sel sm">
+            <option value="0">forever</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="auto-alerts">
+        <label class="chk"><input type="checkbox" id="auto-alert-on" /> alerts</label>
+        <label class="field inline"><span>warn latency</span>
+          <div class="with-unit"><input type="number" id="auto-warn-lat" min="1" max="9999" value="120" /><em>ms</em></div>
+        </label>
+        <label class="field inline"><span>alert jitter</span>
+          <div class="with-unit"><input type="number" id="auto-alert-jit" min="1" max="9999" value="40" /><em>ms</em></div>
+        </label>
+        <label class="field inline"><span>alert loss</span>
+          <div class="with-unit"><input type="number" id="auto-alert-loss" min="1" max="100" value="20" /><em>%</em></div>
+        </label>
+      </div>
+
+      <div class="auto-timer">
+        <div class="ring" id="auto-ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-fg" id="auto-ring-fg" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="ring-label"><span id="auto-countdown">--</span><em id="auto-cycle-label">cycle 0</em></div>
+        </div>
+        <div class="auto-stats">
+          <div class="metric m-amber"><span class="m-label">next in</span><span class="m-val" id="auto-next">—</span></div>
+          <div class="metric m-cyan"><span class="m-label">cycles run</span><span class="m-val" id="auto-cycles-run">0</span></div>
+          <div class="metric m-green"><span class="m-label">best now</span><span class="m-val" id="auto-best">—</span></div>
+          <div class="metric m-pink"><span class="m-label">alerts</span><span class="m-val" id="auto-alert-count">0</span></div>
+        </div>
+      </div>
+      <div class="tool-out" id="auto-log">Auto-test idle. Set an interval and hit START.</div>
+    </section>
+
+    <!-- ---------- 03 STABILITY ---------- -->
     <section class="panel accent-violet" id="panel-stability">
       <div class="panel-head">
-        <h2><span class="idx">02</span> Stability</h2>
+        <h2><span class="idx">03</span> Stability</h2>
         <div class="head-actions">
           <button class="ghost" id="refresh-stab">refresh</button>
           <button class="ghost" id="clear-history">clear</button>
@@ -2799,7 +2913,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 03 SAVED DNS ---------- -->
     <section class="panel accent-green" id="panel-list">
       <div class="panel-head">
-        <h2><span class="idx">03</span> Saved DNS <span class="badge" id="dns-count">0</span></h2>
+        <h2><span class="idx">04</span> Saved DNS <span class="badge" id="dns-count">0</span></h2>
         <div class="head-actions"><button class="ghost" id="clear-dns">clear all</button></div>
       </div>
       <div class="add-row">
@@ -2814,7 +2928,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 
     <!-- ---------- 04 PROBE LAB ---------- -->
     <section class="panel accent-pink" id="panel-tools">
-      <div class="panel-head"><h2><span class="idx">04</span> Probe Lab</h2></div>
+      <div class="panel-head"><h2><span class="idx">05</span> Probe Lab</h2></div>
       <div class="tool-row">
         <input type="text" id="tool-host" placeholder="host / IP" spellcheck="false" value="1.1.1.1" />
       </div>
@@ -2825,6 +2939,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <button class="chip c4" data-tool="http">HTTP GET</button>
         <button class="chip c5" data-tool="game">Game latency</button>
         <button class="chip c6" data-tool="mtu">MTU advice</button>
+        <button class="chip c7" data-tool="protocols">UDP / TCP / TLS</button>
       </div>
       <select id="tool-game" class="sel"></select>
       <div class="tool-out" id="tool-out">Pick a probe to test a host.</div>
@@ -2833,7 +2948,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 05 NETWORK / VPN ---------- -->
     <section class="panel accent-amber" id="panel-network">
       <div class="panel-head">
-        <h2><span class="idx">05</span> Network · VPN</h2>
+        <h2><span class="idx">06</span> Network · VPN</h2>
         <button class="ghost" id="refresh-network">refresh</button>
       </div>
       <p class="hint">Public egress IP &amp; geo — check what your VPN exposes.</p>
@@ -2850,7 +2965,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 06 DEVICE ---------- -->
     <section class="panel accent-blue" id="panel-device">
       <div class="panel-head">
-        <h2><span class="idx">06</span> Device</h2>
+        <h2><span class="idx">07</span> Device</h2>
         <button class="ghost" id="refresh-device">refresh</button>
       </div>
       <p class="hint">Read-only Shizuku snapshot (getprop / ip route).</p>
@@ -2866,7 +2981,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 07 APN BENCHMARK ---------- -->
     <section class="panel accent-violet span-2" id="panel-apn">
       <div class="panel-head">
-        <h2><span class="idx">07</span> APN Benchmark</h2>
+        <h2><span class="idx">08</span> APN Benchmark</h2>
         <div class="head-actions">
           <button class="ghost" id="refresh-apn">refresh</button>
           <button class="ghost danger" id="apn-bench">run benchmark</button>
@@ -2881,7 +2996,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 
     <!-- ---------- 08 PROFILES ---------- -->
     <section class="panel accent-green" id="panel-profiles">
-      <div class="panel-head"><h2><span class="idx">08</span> Game Profiles</h2></div>
+      <div class="panel-head"><h2><span class="idx">09</span> Game Profiles</h2></div>
       <div class="add-row">
         <input type="text" id="prof-name" placeholder="name e.g. Valorant" spellcheck="false" />
         <input type="text" id="prof-host" placeholder="host" spellcheck="false" />
@@ -2893,7 +3008,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 09 DIAGNOSIS ---------- -->
     <section class="panel accent-cyan" id="panel-diagnosis">
       <div class="panel-head">
-        <h2><span class="idx">09</span> Diagnosis</h2>
+        <h2><span class="idx">10</span> Diagnosis</h2>
         <button class="ghost" id="diag-run">run</button>
       </div>
       <div class="tool-out" id="diag-out">Run the local network diagnosis (reference host + gateway).</div>
@@ -2902,7 +3017,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <!-- ---------- 10 AI ANALYSIS ---------- -->
     <section class="panel accent-pink span-2" id="panel-ai">
       <div class="panel-head">
-        <h2><span class="idx">10</span> AI Analysis <span class="badge ai-badge" id="ai-badge">OpenRouter</span></h2>
+        <h2><span class="idx">11</span> AI Analysis <span class="badge ai-badge" id="ai-badge">OpenRouter</span></h2>
         <div class="head-actions">
           <button class="ghost" id="ai-analyse">analyse scan</button>
           <button class="ghost" id="ai-ask">ask about results</button>
@@ -2914,14 +3029,94 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <input type="password" id="ai-key" placeholder="sk-or-… (stored locally in this browser)" spellcheck="false" />
         </label>
         <label class="field wide-field"><span>model</span>
-          <input type="text" id="ai-model" value="openai/gpt-4o-mini" spellcheck="false" />
+          <div class="model-pick">
+            <select id="ai-model-select" class="sel"></select>
+            <input type="text" id="ai-model" value="openai/gpt-4o-mini" spellcheck="false" />
+          </div>
         </label>
+        <div class="model-filters">
+          <button class="seg active" id="ai-seg-all">all</button>
+          <button class="seg" id="ai-seg-free">free</button>
+          <button class="seg" id="ai-seg-paid">paid</button>
+          <button class="ghost tiny" id="ai-models-refresh" title="reload the model list">⟳</button>
+          <span class="model-count" id="ai-model-count"></span>
+        </div>
         <label class="chk"><input type="checkbox" id="ai-remember" checked /> remember key</label>
       </div>
       <div class="tool-row">
         <input type="text" id="ai-question" placeholder="optional: ask something specific, e.g. “best for gaming in EU?”" spellcheck="false" />
       </div>
       <div class="ai-out" id="ai-out">Run a scan, then hit ANALYSE SCAN for an AI recommendation.</div>
+    </section>
+
+    <!-- ---------- 12 APPEARANCE ---------- -->
+    <section class="panel span-2 accent-blue" id="panel-appearance">
+      <div class="panel-head">
+        <h2><span class="idx">12</span> Appearance</h2>
+        <div class="head-actions">
+          <button class="ghost" id="theme-reset">reset</button>
+        </div>
+      </div>
+      <p class="hint">Make it yours — accent colours, text colours, font and size. Saved in this browser and applied instantly.</p>
+
+      <div class="appear-grid">
+        <div class="appear-block">
+          <div class="appear-title">theme preset</div>
+          <div class="preset-row" id="preset-row">
+            <button class="preset" data-preset="nexus">Nexus</button>
+            <button class="preset" data-preset="midnight">Midnight</button>
+            <button class="preset" data-preset="matrix">Matrix</button>
+            <button class="preset" data-preset="sunset">Sunset</button>
+            <button class="preset" data-preset="ice">Ice</button>
+            <button class="preset" data-preset="light">Light</button>
+          </div>
+        </div>
+
+        <div class="appear-block">
+          <div class="appear-title">colours</div>
+          <div class="color-row">
+            <label class="color-field"><span>accent</span><input type="color" id="col-accent" value="#35e6ff" /></label>
+            <label class="color-field"><span>text</span><input type="color" id="col-ink" value="#eae6ff" /></label>
+            <label class="color-field"><span>muted</span><input type="color" id="col-dim" value="#9a92c4" /></label>
+            <label class="color-field"><span>background</span><input type="color" id="col-bg" value="#08060f" /></label>
+          </div>
+        </div>
+
+        <div class="appear-block">
+          <div class="appear-title">font</div>
+          <div class="font-row">
+            <label class="field"><span>family</span>
+              <select id="font-family" class="sel sm">
+                <option value="Outfit">Outfit (default)</option>
+                <option value="system">System UI</option>
+                <option value="Georgia">Georgia (serif)</option>
+                <option value="'Courier New'">Courier (mono)</option>
+                <option value="Verdana">Verdana</option>
+              </select>
+            </label>
+            <label class="field"><span>size</span>
+              <div class="with-unit"><input type="number" id="font-size" min="12" max="20" step="0.5" value="14.5" /><em>px</em></div>
+            </label>
+            <label class="field"><span>density</span>
+              <select id="ui-density" class="sel sm">
+                <option value="cozy">cozy</option>
+                <option value="compact">compact</option>
+                <option value="roomy">roomy</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="appear-block">
+          <div class="appear-title">effects</div>
+          <div class="fx-row">
+            <label class="chk"><input type="checkbox" id="fx-aurora" checked /> aurora glow</label>
+            <label class="chk"><input type="checkbox" id="fx-grid" checked /> grid</label>
+            <label class="chk"><input type="checkbox" id="fx-scanlines" /> scanlines</label>
+            <label class="chk"><input type="checkbox" id="fx-sparkles" checked /> sparkles</label>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -3372,6 +3567,179 @@ table.results tr:hover td { background: rgba(150,130,255,0.08); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ============================================================
+   ROUND 8 — burger drawer, auto-test, model menu, appearance
+   ============================================================ */
+
+/* ---- burger button ---- */
+.burger {
+  display: inline-flex; flex-direction: column; justify-content: center; gap: 4px;
+  width: 38px; height: 34px; padding: 8px 9px; margin-right: 4px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line-strong);
+  border-radius: 10px; cursor: pointer; transition: background .15s, border-color .15s;
+}
+.burger:hover { background: rgba(255,255,255,0.10); border-color: var(--acc); }
+.burger span {
+  display: block; height: 2px; width: 100%; border-radius: 2px;
+  background: var(--ink); transition: transform .25s, opacity .2s;
+}
+.burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+.burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+/* ---- drawer ---- */
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 70; background: rgba(4,3,10,0.62);
+  backdrop-filter: blur(3px); opacity: 0; transition: opacity .25s;
+}
+.drawer-backdrop.show { opacity: 1; }
+.drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 71; width: 286px; max-width: 84vw;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(20,16,38,0.98), rgba(11,8,24,0.98));
+  border-right: 1px solid var(--line-strong);
+  box-shadow: 22px 0 60px rgba(0,0,0,0.5);
+  transform: translateX(-104%); transition: transform .28s cubic-bezier(.2,.8,.2,1);
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 18px 12px; border-bottom: 1px solid var(--line);
+}
+.drawer-title { font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 12px; color: var(--dim); }
+.drawer-close {
+  background: none; border: none; color: var(--dim); font-size: 16px; cursor: pointer;
+  padding: 4px 8px; border-radius: 8px;
+}
+.drawer-close:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
+.drawer-nav { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.drawer-nav a {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
+  color: var(--ink); text-decoration: none; font-size: 14px; transition: background .15s, color .15s;
+  border-left: 2px solid transparent;
+}
+.drawer-nav a:hover { background: rgba(255,255,255,0.06); }
+.drawer-nav a.active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--acc) 20%, transparent), transparent);
+  border-left-color: var(--acc); color: var(--acc);
+}
+.drawer-nav .di {
+  font-family: var(--mono); font-size: 11px; color: var(--dim-2); min-width: 20px;
+}
+.drawer-nav a.active .di { color: var(--acc); }
+.drawer-foot { padding: 12px 18px; border-top: 1px solid var(--line); color: var(--dim-2); font-family: var(--mono); font-size: 11px; }
+
+/* ---- section highlight when jumped to ---- */
+.panel.flash { animation: flashPanel 1.4s ease-out; }
+@keyframes flashPanel {
+  0%   { box-shadow: 0 0 0 2px var(--acc), 0 0 40px color-mix(in srgb, var(--acc) 45%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ---- small selects / segmented / model picker ---- */
+.sel.sm { padding: 7px 8px; font-size: 12.5px; }
+.seg {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line); color: var(--dim);
+  padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.seg:hover { color: var(--ink); }
+.seg.active { background: color-mix(in srgb, var(--acc) 22%, transparent); color: var(--acc); border-color: var(--acc); }
+.ghost.tiny { padding: 4px 9px; font-size: 12px; }
+.model-pick { display: flex; flex-direction: column; gap: 6px; }
+.model-pick .sel { width: 100%; }
+.model-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.model-count { color: var(--dim-2); font-size: 11.5px; font-family: var(--mono); margin-left: auto; }
+
+/* ---- auto-test ---- */
+.auto-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 12px;
+}
+.auto-alerts {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+  padding: 12px; margin-bottom: 14px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px;
+}
+.field.inline { margin: 0; }
+.with-unit { display: flex; align-items: center; gap: 6px; }
+.with-unit input { width: 100%; }
+.with-unit em { font-style: normal; color: var(--dim-2); font-size: 12px; font-family: var(--mono); }
+.auto-timer { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.ring { position: relative; width: 118px; height: 118px; flex: none; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 8; }
+.ring-bg { stroke: rgba(255,255,255,0.08); }
+.ring-fg {
+  stroke: var(--amber); stroke-linecap: round;
+  stroke-dasharray: 327; stroke-dashoffset: 327;
+  transition: stroke-dashoffset .95s linear, stroke .3s;
+}
+.ring.running .ring-fg { transition: stroke-dashoffset 1s linear; }
+.ring-label {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+}
+.ring-label span { font-size: 24px; font-weight: 700; font-family: var(--mono); }
+.ring-label em { font-style: normal; font-size: 10.5px; color: var(--dim-2); letter-spacing: .06em; text-transform: uppercase; }
+.auto-stats { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 10px; flex: 1; min-width: 220px; }
+
+/* ---- appearance ---- */
+.appear-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.appear-block { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.appear-title { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.preset {
+  padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 12.5px;
+  border: 1px solid var(--line-strong); background: rgba(255,255,255,0.04); color: var(--ink);
+  transition: transform .12s, border-color .15s;
+}
+.preset:hover { transform: translateY(-1px); border-color: var(--acc); }
+.preset.active { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 20%, transparent); color: var(--acc); }
+.color-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.color-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--dim); }
+.color-field input[type="color"] {
+  width: 46px; height: 30px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: none; cursor: pointer; padding: 2px;
+}
+.font-row, .fx-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.fx-row .chk { margin: 0; }
+
+/* density */
+body[data-density="compact"] .panel { padding: 14px; }
+body[data-density="compact"] .grid { gap: 12px; }
+body[data-density="roomy"] .panel { padding: 26px; }
+body[data-density="roomy"] .grid { gap: 22px; }
+
+/* effect toggles */
+body.no-aurora .aurora { display: none; }
+body.no-grid .grid-bg { display: none; }
+body.no-scanlines .scanlines { display: none; }
+body.no-sparkles .sparkles { display: none; }
+body.no-aurora { background: var(--bg); }
+
+@media (max-width: 900px) {
+  .auto-timer { gap: 14px; }
+  .auto-stats { min-width: 100%; }
+}
+
+/* ---- protocol tags in results table ---- */
+.ptag {
+  display: inline-block; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: .04em; padding: 2px 5px; border-radius: 5px; margin-right: 3px;
+  background: rgba(255,255,255,0.08); color: var(--dim);
+}
+.ptag.ok { background: color-mix(in srgb, var(--good) 26%, transparent); color: var(--good); }
+.ptag.bad { background: color-mix(in srgb, var(--danger) 24%, transparent); color: var(--danger); text-decoration: line-through; }
+
+/* ---- auto-test log lines ---- */
+.auto-line {
+  font-family: var(--mono); font-size: 12px; padding: 2px 0; color: var(--dim);
+  border-bottom: 1px dashed var(--line);
+}
+.auto-line:first-child { color: var(--ink); }
+.badge.live { background: color-mix(in srgb, var(--green) 24%, transparent); color: var(--good); border-color: var(--good); }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -3409,6 +3777,55 @@ _WEB_APP_JS = r"""/* ===========================================================
     fetch(p, { method: "POST", headers: { "Content-Type": "application/json" },
                body: JSON.stringify(body) }).then((r) => r.json());
 
+  /* ============================================================
+     NAV DRAWER (burger)
+     ============================================================ */
+  const drawer = $("drawer");
+  const backdrop = $("drawer-backdrop");
+  const burger = $("burger");
+
+  function openDrawer() {
+    drawer.classList.add("open");
+    backdrop.hidden = false;
+    requestAnimationFrame(() => backdrop.classList.add("show"));
+    burger.setAttribute("aria-expanded", "true");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+  function closeDrawer() {
+    drawer.classList.remove("open");
+    backdrop.classList.remove("show");
+    burger.setAttribute("aria-expanded", "false");
+    drawer.setAttribute("aria-hidden", "true");
+    setTimeout(() => { if (!drawer.classList.contains("open")) backdrop.hidden = true; }, 260);
+  }
+  burger.addEventListener("click", () =>
+    drawer.classList.contains("open") ? closeDrawer() : openDrawer());
+  $("drawer-close").addEventListener("click", closeDrawer);
+  backdrop.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+  const navLinks = [...document.querySelectorAll("#drawer-nav a")];
+  navLinks.forEach((a) => a.addEventListener("click", (e) => {
+    e.preventDefault();
+    const target = document.getElementById(a.dataset.target);
+    closeDrawer();
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    target.classList.remove("flash");
+    void target.offsetWidth;
+    target.classList.add("flash");
+  }));
+
+  // Highlight the section currently in view.
+  const sectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      const id = en.target.id;
+      navLinks.forEach((a) => a.classList.toggle("active", a.dataset.target === id));
+    });
+  }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
+  document.querySelectorAll("main .panel").forEach((p) => sectionObserver.observe(p));
+
   function statusPill(status) {
     const s = el("span", "pill " + status);
     s.textContent = status === "ok" ? "ok" : status === "warn" ? "spike" : "fail";
@@ -3425,6 +3842,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   const resultsBody = $("results-body");
   let currentES = null;
   let rows = [];
+  let scanDoneHook = null;   // called with the finished rows (used by auto-test)
 
   const parseTargets = () =>
     targetsBox.value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
@@ -3436,66 +3854,85 @@ _WEB_APP_JS = r"""/* ===========================================================
     $("stat-rate").textContent = "—";
   }
 
-  function runScan() {
-    const targets = parseTargets();
-    if (!targets.length) { progressText.textContent = "add a target first"; return; }
-    const count = Math.max(1, Math.min(10, parseInt($("count").value, 10) || 3));
-    const workers = Math.max(1, Math.min(512, parseInt($("workers").value, 10) || 64));
-    const chunk = Math.max(1, Math.min(5000, parseInt($("chunk").value, 10) || 100));
+  // opts: { targets, count, workers, chunk, proto, timeout, label, silent }
+  // Returns a promise that resolves with the finished rows.
+  function runScan(opts) {
+    opts = opts || {};
+    const targets = opts.targets || parseTargets();
+    if (!targets.length) {
+      if (!opts.silent) progressText.textContent = "add a target first";
+      return Promise.resolve([]);
+    }
+    const count = Math.max(1, Math.min(10, opts.count ?? (parseInt($("count").value, 10) || 3)));
+    const workers = Math.max(1, Math.min(512, opts.workers ?? (parseInt($("workers").value, 10) || 64)));
+    const chunk = Math.max(1, Math.min(5000, opts.chunk ?? (parseInt($("chunk").value, 10) || 100)));
+    const proto = opts.proto || $("proto").value || "udp";
+    const timeout = Math.max(0.3, Math.min(10, opts.timeout ?? (parseFloat($("timeout").value) || 1.5)));
 
     if (currentES) currentES.close();
-    resultsBody.innerHTML = "";
-    rows = [];
-    resetMetrics();
+    if (!opts.keepRows) {
+      resultsBody.innerHTML = "";
+      rows = [];
+      resetMetrics();
+    }
     runBtn.disabled = true;
     runBtn.querySelector(".run-label").textContent = "SCANNING…";
 
     const url = `/api/scan?targets=${encodeURIComponent(targets.join(","))}` +
-                `&count=${count}&workers=${workers}&chunk=${chunk}`;
-    const es = new EventSource(url);
-    currentES = es;
+                `&count=${count}&workers=${workers}&chunk=${chunk}` +
+                `&proto=${encodeURIComponent(proto)}&timeout=${timeout}`;
 
-    es.onmessage = (ev) => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
+    return new Promise((resolve) => {
+      const es = new EventSource(url);
+      currentES = es;
+      let finished = false;
 
-      if (msg.type === "start") {
-        progressText.textContent = `0 / ${msg.total} · ${msg.workers} workers`;
-        progressBar.style.width = "0%";
-      } else if (msg.type === "result") {
-        rows.push(msg);
-        renderResults();
-      } else if (msg.type === "progress") {
-        progressBar.style.width = (msg.done / msg.total) * 100 + "%";
-        progressText.textContent = `${msg.done} / ${msg.total}`;
-      } else if (msg.type === "chunk") {
-        progressBar.style.width = (msg.done / msg.total) * 100 + "%";
-        $("stat-done").textContent = msg.done;
-        $("stat-ok").textContent = msg.ok;
-        $("stat-best").textContent = fmt(msg.best);
-        $("stat-rate").textContent = msg.rate;
-        progressText.textContent = `${msg.done} / ${msg.total} · ${msg.rate}/s`;
-      } else if (msg.type === "summary") {
-        renderStability(msg.rows);
-      } else if (msg.type === "done") {
-        progressText.textContent = `done — ${msg.summary.ok} ok / ${msg.summary.failed} failed`;
+      es.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+
+        if (msg.type === "start") {
+          progressText.textContent = `0 / ${msg.total} · ${msg.workers} workers · ${msg.proto.toUpperCase()}`;
+          progressBar.style.width = "0%";
+        } else if (msg.type === "result") {
+          rows.push(msg);
+          renderResults();
+        } else if (msg.type === "progress") {
+          progressBar.style.width = (msg.done / msg.total) * 100 + "%";
+          progressText.textContent = `${msg.done} / ${msg.total}`;
+        } else if (msg.type === "chunk") {
+          progressBar.style.width = (msg.done / msg.total) * 100 + "%";
+          $("stat-done").textContent = msg.done;
+          $("stat-ok").textContent = msg.ok;
+          $("stat-best").textContent = fmt(msg.best);
+          $("stat-rate").textContent = msg.rate;
+          progressText.textContent = `${msg.done} / ${msg.total} · ${msg.rate}/s`;
+        } else if (msg.type === "summary") {
+          renderStability(msg.rows);
+        } else if (msg.type === "done") {
+          progressText.textContent = `done — ${msg.summary.ok} ok / ${msg.summary.failed} failed`;
+          finish();
+        } else if (msg.type === "error") {
+          progressText.textContent = "error: " + msg.message;
+          finish();
+        }
+      };
+      es.onerror = () => {
+        if (runBtn.disabled) progressText.textContent = "stream closed";
         finish();
-      } else if (msg.type === "error") {
-        progressText.textContent = "error: " + msg.message;
-        finish();
+      };
+
+      function finish() {
+        if (finished) return;
+        finished = true;
+        if (currentES) { currentES.close(); currentES = null; }
+        runBtn.disabled = false;
+        runBtn.querySelector(".run-label").textContent = "RUN SCAN";
+        updateMetrics();
+        if (scanDoneHook) scanDoneHook(rows.slice());
+        resolve(rows.slice());
       }
-    };
-    es.onerror = () => {
-      if (runBtn.disabled) progressText.textContent = "stream closed";
-      finish();
-    };
-
-    function finish() {
-      if (currentES) { currentES.close(); currentES = null; }
-      runBtn.disabled = false;
-      runBtn.querySelector(".run-label").textContent = "RUN SCAN";
-      updateMetrics();
-    }
+    });
   }
 
   function visibleRows() {
@@ -3503,7 +3940,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     const onlyOk = $("only-ok").checked;
     return rows.filter((r) => {
       if (onlyOk && r.status !== "ok") return false;
-      if (q && !(`${r.target} ${r.status}`.toLowerCase().includes(q))) return false;
+      if (q && !(`${r.target} ${r.status} ${r.proto_used || ""}`.toLowerCase().includes(q))) return false;
       return true;
     });
   }
@@ -3515,7 +3952,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (!list.length) {
       const tr = el("tr", "empty");
       const td = el("td", null, rows.length ? "no rows match the filter." : "No scan yet — hit RUN SCAN.");
-      td.colSpan = 6;
+      td.colSpan = 7;
       tr.appendChild(td);
       resultsBody.appendChild(tr);
       return;
@@ -3536,6 +3973,19 @@ _WEB_APP_JS = r"""/* ===========================================================
       tr.appendChild(latCell);
       tr.appendChild(el("td", null, fmt(r.jitter)));
       tr.appendChild(el("td", null, fmt(r.loss, "%", 0)));
+      // which protocol actually answered (or the one being tested)
+      const protoCell = el("td");
+      const pr = r.proto_results || {};
+      const tags = [];
+      ["udp", "tcp", "tls"].forEach((k) => {
+        const v = pr[k];
+        if (!v) return;
+        const cls = v.ok ? "ptag ok" : "ptag bad";
+        tags.push(`<span class="${cls}" title="${v.ms ?? "—"} ms">${k.toUpperCase()}</span>`);
+      });
+      protoCell.innerHTML = tags.length ? tags.join(" ") :
+        `<span class="ptag">${(r.proto || "udp").toUpperCase()}</span>`;
+      tr.appendChild(protoCell);
       const st = el("td");
       st.appendChild(statusPill(r.status));
       tr.appendChild(st);
@@ -3707,6 +4157,18 @@ _WEB_APP_JS = r"""/* ===========================================================
       const r = await getJSON("/api/mtu");
       return kv("recommended MTU", r.mtu) + "\n" + kv("mode", r.mode) + "\n" +
              kv("interface", r.interface || "unknown");
+    },
+    protocols: async (host) => {
+      const r = await post("/api/tools/protocols", { host, count: 3 });
+      const res = r.results || {};
+      const line = (k, label) => {
+        const v = res[k];
+        if (!v) return "";
+        const mark = v.ok ? `<span class="good">${v.ms} ms</span>` : `<span class="err">no reply</span>`;
+        return kv(label, `${mark} · loss ${v.loss}%`);
+      };
+      return [line("udp", "UDP :53"), line("tcp", "TCP :53"), line("tls", "DoT :853")]
+        .filter(Boolean).join("\n");
     },
   };
 
@@ -3975,6 +4437,65 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (r.server_key) $("ai-badge").textContent = "key on server";
   }).catch(() => {});
 
+  /* ---- model menu (free / paid) ---- */
+  const modelSelect = $("ai-model-select");
+  const modelCount = $("ai-model-count");
+  let allModels = [];
+  let modelFilter = "all";
+
+  function priceTag(m) {
+    if (m.free) return "free";
+    const p = parseFloat(m.prompt || "0");
+    if (!isFinite(p) || p === 0) return "free";
+    if (p < 0) return "varies";
+    return `$${(p * 1e6).toFixed(2)}/M in`;
+  }
+
+  function renderModelOptions() {
+    const list = allModels.filter((m) =>
+      modelFilter === "free" ? m.free : modelFilter === "paid" ? !m.free : true);
+    modelSelect.innerHTML = "";
+    if (!list.length) {
+      modelSelect.appendChild(el("option", null, "(no models)"));
+      return;
+    }
+    list.forEach((m) => {
+      const opt = el("option", null, `${m.free ? "★ " : ""}${m.name} — ${priceTag(m)}`);
+      opt.value = m.id;
+      modelSelect.appendChild(opt);
+    });
+    // keep the current typed model selected if present
+    const cur = aiModel.value.trim();
+    if (cur && list.some((m) => m.id === cur)) modelSelect.value = cur;
+    else if (list.length) { modelSelect.value = list[0].id; aiModel.value = list[0].id; }
+    modelCount.textContent = `${list.length} / ${allModels.length} models · ` +
+      `${allModels.filter((m) => m.free).length} free`;
+  }
+
+  async function loadModels(force) {
+    modelCount.textContent = "loading models…";
+    try {
+      const r = await getJSON("/api/ai/models" + (force ? "?refresh=1" : ""));
+      allModels = r.models || [];
+      renderModelOptions();
+    } catch (e) { modelCount.textContent = "model list unavailable"; }
+  }
+
+  modelSelect.addEventListener("change", () => {
+    aiModel.value = modelSelect.value;
+    localStorage.setItem("openrouter_model", aiModel.value);
+  });
+  [["ai-seg-all", "all"], ["ai-seg-free", "free"], ["ai-seg-paid", "paid"]].forEach(([id, val]) => {
+    $(id).addEventListener("click", () => {
+      modelFilter = val;
+      ["ai-seg-all", "ai-seg-free", "ai-seg-paid"].forEach((x) =>
+        $(x).classList.toggle("active", $(x) === $(id)));
+      renderModelOptions();
+    });
+  });
+  $("ai-models-refresh").addEventListener("click", () => loadModels(true));
+  loadModels(false);
+
   function mdLite(text) {
     const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return esc
@@ -4006,8 +4527,8 @@ _WEB_APP_JS = r"""/* ===========================================================
       const r = await post("/api/ai/analyze", payload);
       if (r.error) {
         aiOut.innerHTML = `<span class="err">${r.error}</span>` +
-          (r.detail ? `\n${r.detail}` : "") +
-          (r.error.includes("key") ? `\n<span class="ok">Tip: start the server with --api-key or $OPENROUTER_API_KEY.</span>` : "");
+          (r.hint ? `\n<span class="ok">Tip: ${r.hint}</span>` : "") +
+          (r.detail ? `\n<code>${String(r.detail).replace(/[<>&]/g, "")}</code>` : "");
         return;
       }
       aiOut.innerHTML = mdLite(r.analysis || "(empty response)") +
@@ -4018,6 +4539,279 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("ai-analyse").addEventListener("click", () => runAI(false));
   $("ai-ask").addEventListener("click", () => runAI(true));
   $("ai-question").addEventListener("keydown", (e) => { if (e.key === "Enter") runAI(true); });
+
+  /* ============================================================
+     AUTO-TEST (timer-driven recurring scan)
+     ============================================================ */
+  const auto = {
+    running: false,
+    cycle: 0,
+    maxCycles: 0,
+    alertCount: 0,
+    tickTimer: null,
+    remaining: 0,
+    interval: 60,
+  };
+  const autoRing = $("auto-ring");
+  const autoRingFg = $("auto-ring-fg");
+  const RING_LEN = 327; // 2 * pi * 52
+
+  function autoLog(msg) {
+    const box = $("auto-log");
+    const stamp = new Date().toTimeString().slice(0, 8);
+    const line = el("div", "auto-line", `[${stamp}] ${msg}`);
+    box.insertBefore(line, box.firstChild);
+    while (box.childElementCount > 60) box.removeChild(box.lastChild);
+  }
+
+  function setRing(frac) {
+    const f = Math.max(0, Math.min(1, frac));
+    autoRingFg.style.strokeDashoffset = String(RING_LEN * (1 - f));
+  }
+
+  function autoTargets() {
+    const src = $("auto-source").value;
+    if (src === "list") return null; // resolved from the server
+    return parseTargets();
+  }
+
+  function autoConfig() {
+    return {
+      interval: Math.max(5, Math.min(86400, parseInt($("auto-interval").value, 10) || 60)),
+      proto: $("auto-proto").value,
+      count: Math.max(1, Math.min(10, parseInt($("auto-count").value, 10) || 3)),
+      workers: Math.max(1, Math.min(512, parseInt($("auto-workers").value, 10) || 64)),
+      source: $("auto-source").value,
+      maxCycles: Math.max(0, parseInt($("auto-cycles").value, 10) || 0),
+      alerts: $("auto-alert-on").checked,
+      warnLat: parseFloat($("auto-warn-lat").value) || 120,
+      alertJit: parseFloat($("auto-alert-jit").value) || 40,
+      alertLoss: parseFloat($("auto-alert-loss").value) || 20,
+    };
+  }
+
+  function autoStart() {
+    if (auto.running) return;
+    const cfg = autoConfig();
+    auto.running = true;
+    auto.cycle = 0;
+    auto.maxCycles = cfg.maxCycles;
+    auto.alertCount = 0;
+    auto.interval = cfg.interval;
+    $("auto-alert-count").textContent = "0";
+    $("auto-cycles-run").textContent = "0";
+    $("auto-state").textContent = "running";
+    $("auto-state").classList.add("live");
+    autoRing.classList.add("running");
+    $("auto-log").innerHTML = "";
+    autoLog(`auto-test started · every ${cfg.interval}s · ${cfg.proto.toUpperCase()} · ` +
+            (cfg.maxCycles ? `${cfg.maxCycles} cycles` : "forever"));
+    autoLoop();
+  }
+
+  function autoStop(msg) {
+    if (!auto.running) return;
+    auto.running = false;
+    clearTimeout(auto.tickTimer);
+    autoRing.classList.remove("running");
+    setRing(0);
+    $("auto-countdown").textContent = "--";
+    $("auto-state").textContent = "idle";
+    $("auto-state").classList.remove("live");
+    $("auto-next").textContent = "—";
+    if (msg) autoLog(msg);
+  }
+
+  async function autoRunCycle() {
+    const cfg = autoConfig();
+    auto.cycle += 1;
+    $("auto-cycles-run").textContent = String(auto.cycle);
+    $("auto-cycle-label").textContent = `cycle ${auto.cycle}`;
+    autoLog(`cycle ${auto.cycle}: scanning…`);
+
+    let targets = autoTargets();
+    if (targets === null) {
+      try {
+        const r = await getJSON("/api/dns-list");
+        targets = r.list || [];
+      } catch { targets = []; }
+    }
+    if (!targets.length) {
+      autoLog("no targets — set the scanner box or save a DNS list. Stopping.");
+      autoStop();
+      return;
+    }
+
+    // drive the visible scanner so results stream in live
+    const result = await runScan({
+      targets, proto: cfg.proto, count: cfg.count, workers: cfg.workers,
+      timeout: 1.5, keepRows: false, silent: true,
+    });
+
+    const ok = result.filter((r) => r.status === "ok");
+    const best = ok.length ? ok.reduce((a, b) => (a.latency < b.latency ? a : b)) : null;
+    $("auto-best").textContent = best ? fmt(best.latency) : "—";
+    autoLog(`cycle ${auto.cycle}: ${ok.length}/${result.length} alive` +
+            (best ? `, best ${best.target} ${fmt(best.latency)}` : ""));
+
+    if (cfg.alerts) {
+      result.forEach((r) => {
+        if (r.status !== "ok") {
+          auto.alertCount++;
+          autoLog(`⚠ ${r.target} unreachable`);
+        } else {
+          if (r.latency > cfg.warnLat) { auto.alertCount++; autoLog(`⚠ ${r.target} slow ${fmt(r.latency)} (> ${cfg.warnLat}ms)`); }
+          if (r.jitter > cfg.alertJit) { auto.alertCount++; autoLog(`⚠ ${r.target} jitter ${fmt(r.jitter)} (> ${cfg.alertJit}ms)`); }
+          if (r.loss > cfg.alertLoss) { auto.alertCount++; autoLog(`⚠ ${r.target} loss ${fmt(r.loss, "%", 0)} (> ${cfg.alertLoss}%)`); }
+        }
+      });
+      $("auto-alert-count").textContent = String(auto.alertCount);
+    }
+
+    if (auto.maxCycles && auto.cycle >= auto.maxCycles) {
+      autoStop(`auto-test finished after ${auto.cycle} cycles (${auto.alertCount} alerts).`);
+      return;
+    }
+    autoCountdown(auto.interval);
+  }
+
+  function autoCountdown(seconds) {
+    auto.remaining = seconds;
+    const started = Date.now();
+    const total = seconds * 1000;
+    const step = () => {
+      if (!auto.running) return;
+      const elapsed = Date.now() - started;
+      const left = Math.max(0, Math.ceil((total - elapsed) / 1000));
+      $("auto-countdown").textContent = left;
+      $("auto-next").textContent = left + "s";
+      setRing(elapsed / total);
+      if (elapsed >= total) { autoRunCycle(); return; }
+      auto.tickTimer = setTimeout(step, 250);
+    };
+    step();
+  }
+
+  function autoLoop() {
+    // first cycle runs immediately, then countdown between cycles
+    autoRunCycle();
+  }
+
+  $("auto-start").addEventListener("click", autoStart);
+  $("auto-stop").addEventListener("click", () => autoStop("auto-test stopped."));
+
+  /* ============================================================
+     APPEARANCE (theme / colours / font) — persisted in localStorage
+     ============================================================ */
+  const APPEAR_KEY = "nexus_appearance";
+  const PRESETS = {
+    nexus:    { accent: "#35e6ff", ink: "#eae6ff", dim: "#9a92c4", bg: "#08060f" },
+    midnight: { accent: "#8b9dff", ink: "#e6e9ff", dim: "#8f97c4", bg: "#05060f" },
+    matrix:   { accent: "#37ff8b", ink: "#d6ffe6", dim: "#79b894", bg: "#03080a" },
+    sunset:   { accent: "#ff8a5c", ink: "#ffe9e0", dim: "#c79a8c", bg: "#120708" },
+    ice:      { accent: "#7afcff", ink: "#eafcff", dim: "#8fb6c4", bg: "#06101a" },
+    light:    { accent: "#2f7cff", ink: "#14162e", dim: "#5b6180", bg: "#eef1f8" },
+  };
+
+  function applyAppearance(a) {
+    const root = document.documentElement;
+    const body = document.body;
+    if (a.accent) root.style.setProperty("--acc", a.accent);
+    if (a.ink) { root.style.setProperty("--ink", a.ink); }
+    if (a.dim) root.style.setProperty("--dim", a.dim);
+    if (a.bg) { root.style.setProperty("--bg", a.bg); }
+    if (a.font) root.style.setProperty("--display", a.font === "system" ? "system-ui, sans-serif" : a.font);
+    if (a.fontSize) body.style.fontSize = a.fontSize + "px";
+    body.dataset.density = a.density || "cozy";
+    body.classList.toggle("no-aurora", a.fxAurora === false);
+    body.classList.toggle("no-grid", a.fxGrid === false);
+    body.classList.toggle("no-scanlines", a.fxScanlines === false);
+    body.classList.toggle("no-sparkles", a.fxSparkles === false);
+  }
+
+  function readAppearanceControls() {
+    return {
+      accent: $("col-accent").value,
+      ink: $("col-ink").value,
+      dim: $("col-dim").value,
+      bg: $("col-bg").value,
+      font: $("font-family").value,
+      fontSize: parseFloat($("font-size").value) || 14.5,
+      density: $("ui-density").value,
+      fxAurora: $("fx-aurora").checked,
+      fxGrid: $("fx-grid").checked,
+      fxScanlines: $("fx-scanlines").checked,
+      fxSparkles: $("fx-sparkles").checked,
+    };
+  }
+
+  function writeAppearanceControls(a) {
+    if (a.accent) $("col-accent").value = a.accent;
+    if (a.ink) $("col-ink").value = a.ink;
+    if (a.dim) $("col-dim").value = a.dim;
+    if (a.bg) $("col-bg").value = a.bg;
+    if (a.font) $("font-family").value = a.font;
+    if (a.fontSize) $("font-size").value = a.fontSize;
+    if (a.density) $("ui-density").value = a.density;
+    if (a.fxAurora != null) $("fx-aurora").checked = a.fxAurora;
+    if (a.fxGrid != null) $("fx-grid").checked = a.fxGrid;
+    if (a.fxScanlines != null) $("fx-scanlines").checked = a.fxScanlines;
+    if (a.fxSparkles != null) $("fx-sparkles").checked = a.fxSparkles;
+  }
+
+  function saveAppearance() {
+    const a = readAppearanceControls();
+    a.preset = currentPreset;
+    localStorage.setItem(APPEAR_KEY, JSON.stringify(a));
+    applyAppearance(a);
+    document.querySelectorAll(".preset").forEach((p) =>
+      p.classList.toggle("active", p.dataset.preset === a.preset));
+  }
+
+  let currentPreset = null;
+  document.querySelectorAll("#preset-row .preset").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = PRESETS[btn.dataset.preset];
+      if (!p) return;
+      currentPreset = btn.dataset.preset;
+      writeAppearanceControls({ ...p, fxAurora: true, fxGrid: true, fxSparkles: true,
+        fxScanlines: false, density: "cozy", font: "Outfit", fontSize: 14.5 });
+      document.querySelectorAll(".preset").forEach((x) => x.classList.remove("active"));
+      btn.classList.add("active");
+      saveAppearance();
+    });
+  });
+
+  ["col-accent", "col-ink", "col-dim", "col-bg", "font-family", "font-size",
+   "ui-density", "fx-aurora", "fx-grid", "fx-scanlines", "fx-sparkles"]
+    .forEach((id) => $(id).addEventListener("input", saveAppearance));
+
+  $("theme-reset").addEventListener("click", () => {
+    localStorage.removeItem(APPEAR_KEY);
+    writeAppearanceControls({ ...PRESETS.nexus, fxAurora: true, fxGrid: true,
+      fxSparkles: true, fxScanlines: false, density: "cozy", font: "Outfit", fontSize: 14.5 });
+    document.documentElement.removeAttribute("style");
+    document.body.removeAttribute("style");
+    applyAppearance({ ...PRESETS.nexus, font: "Outfit", fontSize: 14.5, density: "cozy",
+      fxAurora: true, fxGrid: true, fxScanlines: false, fxSparkles: true });
+    document.querySelectorAll(".preset").forEach((x) => x.classList.remove("active"));
+    document.querySelector('.preset[data-preset="nexus"]').classList.add("active");
+  });
+
+  (function loadAppearance() {
+    let a = null;
+    try { a = JSON.parse(localStorage.getItem(APPEAR_KEY) || "null"); } catch {}
+    if (a) {
+      writeAppearanceControls(a);
+      applyAppearance(a);
+      if (a.preset) {
+        const b = document.querySelector(`.preset[data-preset="${a.preset}"]`);
+        if (b) b.classList.add("active");
+      }
+    } else {
+      document.querySelector('.preset[data-preset="nexus"]').classList.add("active");
+    }
+  })();
 
   /* ---------- seed ---------- */
   targetsBox.value = "8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, 1.0.0.1, 208.67.222.222";
@@ -4182,36 +4976,125 @@ def _web_diagnosis():
     }
 
 
-def _web_ping_blocking(ip, count=3, timeout=1.5):
-    """Blocking UDP DNS ping — one thread per target.
+def _dns_recv_exact(sock, n):
+    """Read exactly n bytes from a stream socket (or raise)."""
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise OSError("connection closed before full DNS message")
+        buf += chunk
+    return buf
+
+
+def _dns_query_udp(ip, packet, timeout):
+    """One UDP DNS query. Returns round-trip ms, or raises."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(timeout)
+        t0 = time.perf_counter()
+        sock.sendto(packet, (ip, 53))
+        sock.recvfrom(512)
+        return (time.perf_counter() - t0) * 1000
+    finally:
+        sock.close()
+
+
+def _dns_query_stream(ip, packet, timeout, tls=False):
+    """One DNS-over-TCP (or DNS-over-TLS/DoT) query, length-prefixed per RFC 1035.
+
+    TCP fallback and DoT are how resolvers behave when UDP is filtered or a
+    truncated reply is received, so they are the honest way to tell a resolver
+    that is blocked from one that is merely slow."""
+    import ssl as _ssl
+    port = 853 if tls else 53
+    t0 = time.perf_counter()
+    raw = socket.create_connection((ip, port), timeout)
+    try:
+        if tls:
+            ctx = _ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            sock = ctx.wrap_socket(raw, server_hostname=ip)
+        else:
+            sock = raw
+        sock.settimeout(timeout)
+        sock.sendall(len(packet).to_bytes(2, "big") + packet)
+        length = int.from_bytes(_dns_recv_exact(sock, 2), "big")
+        _dns_recv_exact(sock, length)
+        return (time.perf_counter() - t0) * 1000
+    finally:
+        try:
+            raw.close()
+        except Exception:
+            pass
+
+
+def _dns_probe_protocol(ip, packet, count, timeout, kind):
+    """Run `count` probes of one protocol and summarise them."""
+    runners = {
+        "udp": lambda: _dns_query_udp(ip, packet, timeout),
+        "tcp": lambda: _dns_query_stream(ip, packet, timeout, tls=False),
+        "tls": lambda: _dns_query_stream(ip, packet, timeout, tls=True),
+    }
+    run = runners[kind]
+    durations, lost = [], 0
+    for _ in range(count):
+        try:
+            durations.append(run())
+        except Exception:
+            lost += 1
+    ok = bool(durations)
+    avg = (sum(durations) / len(durations)) if durations else None
+    jitter = (sum(abs(durations[i] - durations[i - 1]) for i in range(1, len(durations)))
+              / (len(durations) - 1)) if len(durations) > 1 else 0.0
+    return {"ok": ok, "ms": round(avg, 1) if ok else None,
+            "loss": round((lost / count) * 100, 1), "jitter": round(jitter, 1)}
+
+
+def _web_ping_blocking(ip, count=3, timeout=1.5, proto="udp"):
+    """Blocking multi-protocol DNS probe — one thread per target.
 
     `async_ping_dns_core` performs a *blocking* recvfrom, so running it under
     asyncio serialises the whole scan. This thread-friendly twin lets the web
-    scanner run many targets genuinely in parallel via a thread pool."""
+    scanner run many targets genuinely in parallel via a thread pool.
+
+    proto: 'udp' | 'tcp' | 'tls' | 'both' (udp+tcp) | 'auto' (first that works).
+    Returns a dict; the aggregate latency/loss/jitter come from the fastest
+    protocol that answered."""
     packet = _build_dns_query("google.com")
-    durations = []
-    lost = 0
-    for _ in range(count):
-        sock = None
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(timeout)
-            t0 = time.perf_counter()
-            sock.sendto(packet, (ip, 53))
-            sock.recvfrom(512)
-            durations.append((time.perf_counter() - t0) * 1000)
-        except Exception:
-            lost += 1
-        finally:
-            if sock is not None:
-                sock.close()
-    if not durations:
-        return 9999.0, 100.0, 999.0
-    avg = sum(durations) / len(durations)
-    loss = (lost / count) * 100
-    jitter = (sum(abs(durations[i] - durations[i - 1]) for i in range(1, len(durations)))
-              / (len(durations) - 1)) if len(durations) > 1 else 0.0
-    return avg, loss, jitter
+    proto = (proto or "udp").lower()
+    if proto not in ("udp", "tcp", "tls", "both", "auto"):
+        proto = "udp"
+    proto_results = {}
+
+    if proto in ("udp", "tcp", "tls"):
+        proto_results[proto] = _dns_probe_protocol(ip, packet, count, timeout, proto)
+    elif proto == "both":
+        proto_results["udp"] = _dns_probe_protocol(ip, packet, count, timeout, "udp")
+        proto_results["tcp"] = _dns_probe_protocol(ip, packet, count, timeout, "tcp")
+    else:  # auto — stop at the first protocol that answers
+        for kind in ("udp", "tcp", "tls"):
+            res = _dns_probe_protocol(ip, packet, count, timeout, kind)
+            proto_results[kind] = res
+            if res["ok"]:
+                break
+
+    chosen = None
+    for kind in ("udp", "tcp", "tls"):
+        res = proto_results.get(kind)
+        if res and res["ok"]:
+            chosen = res
+            break
+    if chosen:
+        latency, loss, jitter = chosen["ms"], chosen["loss"], chosen["jitter"]
+    else:
+        latency, loss, jitter = 9999.0, 100.0, 999.0
+
+    return {
+        "latency": latency, "loss": loss, "jitter": jitter,
+        "ok": latency < 9000, "proto": proto, "proto_results": proto_results,
+    }
 
 
 def _web_fold_history(target, latency, loss, jitter):
@@ -4378,6 +5261,10 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _AI_DEFAULT_MODEL = "openai/gpt-4o-mini"
 # Default key set from --api-key / $OPENROUTER_API_KEY; the UI can override per request.
 _WEB_AI_KEY = ""
+# Identify the console honestly to OpenRouter (and its WAF).
+_WEB_AI_TITLE = "NEXUS DNS Console"
+_WEB_AI_REFERER = "https://github.com/Onlyicing1/Dns"
+_WEB_UA = "NEXUS-DNS-Console/3.1 (+https://github.com/Onlyicing1/Dns)"
 
 
 def _web_ai_analyze(api_key, model, prompt):
@@ -4399,11 +5286,20 @@ def _web_ai_analyze(api_key, model, prompt):
         headers={
             "Authorization": "Bearer " + api_key,
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost/",
-            "X-Title": "NEXUS DNS Console",
+            "Accept": "application/json",
+            # A real UA matters: WAFs in front of OpenRouter reject the default
+            # "Python-urllib/x.y" with "Access denied by security policy." (403).
+            "User-Agent": _WEB_UA,
+            "HTTP-Referer": _WEB_AI_REFERER,
+            "X-Title": _WEB_AI_TITLE,
         })
     with urllib.request.urlopen(req, timeout=90) as res:
         data = json.loads(res.read().decode("utf-8"))
+    # OpenRouter can return HTTP 200 with an error object embedded in the body.
+    if isinstance(data, dict) and data.get("error"):
+        err = data["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        raise RuntimeError(msg or "OpenRouter returned an error")
     choice = (data.get("choices") or [{}])[0]
     text = (choice.get("message") or {}).get("content", "")
     return text, data.get("model"), data.get("usage")
@@ -4419,16 +5315,133 @@ def _web_build_ai_prompt(body):
         if not isinstance(r, dict):
             continue
         lat = r.get("latency")
+        used = r.get("proto_used")
+        tag = f" [{used}]" if used else ""
         if lat is None:
             lines.append(f"- {r.get('target','?')}: unreachable (loss {r.get('loss','?')}%)")
         else:
             lines.append(f"- {r.get('target','?')}: latency {lat} ms, "
-                         f"jitter {r.get('jitter','?')} ms, loss {r.get('loss','?')}%")
+                         f"jitter {r.get('jitter','?')} ms, loss {r.get('loss','?')}%{tag}")
     ctx = body.get("context")
     if ctx:
         lines += ["", "Network context:", str(ctx)[:2000]]
     lines += ["", "Recommend the best primary and backup DNS servers and why."]
     return "\n".join(lines)
+
+
+# ---- Model catalogue (free / paid) -------------------------------------
+_AI_MODELS_CACHE = {"ts": 0.0, "data": None}
+_AI_MODELS_TTL = 3600  # seconds
+# Fallback so the UI menu is never empty if the network is unavailable.
+_AI_MODELS_FALLBACK = [
+    {"id": "openai/gpt-4o-mini", "name": "GPT-4o mini", "free": False,
+     "context": 128000, "prompt": "0.00000015", "completion": "0.0000006"},
+    {"id": "openai/gpt-4o", "name": "GPT-4o", "free": False,
+     "context": 128000, "prompt": "0.0000025", "completion": "0.00001"},
+    {"id": "anthropic/claude-3.5-haiku", "name": "Claude 3.5 Haiku", "free": False,
+     "context": 200000, "prompt": "0.0000008", "completion": "0.000004"},
+    {"id": "anthropic/claude-3.7-sonnet", "name": "Claude 3.7 Sonnet", "free": False,
+     "context": 200000, "prompt": "0.000003", "completion": "0.000015"},
+    {"id": "google/gemini-2.0-flash-001", "name": "Gemini 2.0 Flash", "free": False,
+     "context": 1000000, "prompt": "0.0000001", "completion": "0.0000004"},
+    {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B (free)",
+     "free": True, "context": 128000, "prompt": "0", "completion": "0"},
+    {"id": "deepseek/deepseek-r1:free", "name": "DeepSeek R1 (free)", "free": True,
+     "context": 128000, "prompt": "0", "completion": "0"},
+]
+
+
+def _web_ai_http_message(code, raw):
+    """Translate an OpenRouter HTTP error into a friendly message + actionable hint."""
+    detail = ""
+    try:
+        parsed = json.loads(raw) if raw else {}
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            detail = err.get("message") or ""
+        elif err:
+            detail = str(err)
+    except Exception:
+        detail = ""
+    detail = (detail or raw or "").strip()
+    low = detail.lower()
+
+    if code == 401:
+        return ("OpenRouter rejected the API key (401).",
+                "Check the key is copied in full and starts with sk-or-. "
+                "Create a new one at openrouter.ai/keys.")
+    if code == 402:
+        return ("OpenRouter: out of credits (402).",
+                "Add credits, or switch the model menu to the FREE models "
+                "(e.g. a ':free' model).")
+    if code == 403:
+        if "security policy" in low or "denied" in low:
+            return ("OpenRouter blocked the request (403 security policy).",
+                    "This is usually the model/provider being blocked for your account "
+                    "or region, or a restricted key. Try a different model from the menu "
+                    "(the FREE ones often work), or use a key with provider access enabled. "
+                    "If it persists, it may be network/VPN related — try another connection.")
+        return ("OpenRouter forbade the request (403).",
+                "The key may lack permission for this model, or a guardrail blocked it. "
+                "Try another model, or use a key with the right access.")
+    if code == 404:
+        return ("OpenRouter: model not found (404).",
+                "That model id does not exist. Pick one from the model menu.")
+    if code == 408:
+        return ("OpenRouter timed out (408).", "Try again, or pick a faster/smaller model.")
+    if code == 429:
+        return ("OpenRouter rate limit (429).", "Wait a moment and retry; free models "
+                "share a tight rate limit.")
+    if code == 502:
+        return ("OpenRouter: the chosen model is down (502).",
+                "Pick a different model from the menu.")
+    if code == 503:
+        return ("OpenRouter: no provider available for that model (503).",
+                "Pick a different model, or retry shortly.")
+    return (f"OpenRouter HTTP {code}.", "See the detail below; try another model or key.")
+
+
+def _web_ai_models(force=False):
+    """Fetch OpenRouter's model catalogue, split into free / paid for the UI menu.
+
+    Cached for an hour; falls back to a small curated list offline so the model
+    menu always has something to show."""
+    now = time.time()
+    if not force and _AI_MODELS_CACHE["data"] and now - _AI_MODELS_CACHE["ts"] < _AI_MODELS_TTL:
+        return _AI_MODELS_CACHE["data"]
+    models = None
+    try:
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Accept": "application/json",
+                     "User-Agent": _WEB_UA, "X-Title": _WEB_AI_TITLE})
+        with urllib.request.urlopen(req, timeout=20) as res:
+            payload = json.loads(res.read().decode("utf-8"))
+        out = []
+        for m in payload.get("data", []):
+            pricing = m.get("pricing") or {}
+            prompt = pricing.get("prompt") or "0"
+            completion = pricing.get("completion") or "0"
+            try:
+                is_free = float(prompt) == 0 and float(completion) == 0
+            except (TypeError, ValueError):
+                is_free = str(m.get("id", "")).endswith(":free")
+            out.append({
+                "id": m.get("id"),
+                "name": m.get("name") or m.get("id"),
+                "free": bool(is_free),
+                "context": m.get("context_length"),
+                "prompt": prompt,
+                "completion": completion,
+            })
+        out = [m for m in out if m["id"]]
+        out.sort(key=lambda m: (not m["free"], m["name"].lower()))
+        models = out or list(_AI_MODELS_FALLBACK)
+    except Exception:
+        models = list(_AI_MODELS_FALLBACK)
+    _AI_MODELS_CACHE["ts"] = now
+    _AI_MODELS_CACHE["data"] = models
+    return models
 
 
 # --------------------------------------------------------------------------
@@ -4480,7 +5493,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.0"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.1"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -4505,6 +5518,11 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(_web_diagnosis())
         elif route == "/api/ai/status":
             self._send_json({"server_key": bool(_WEB_AI_KEY)})
+        elif route == "/api/ai/models":
+            models = _web_ai_models(force=query.get("refresh", ["0"])[0] in ("1", "true"))
+            free = [m for m in models if m["free"]]
+            self._send_json({"models": models, "count": len(models),
+                             "free_count": len(free)})
         elif route == "/api/scan":
             self._stream_scan(query)
         elif route == "/api/apn/benchmark":
@@ -4580,6 +5598,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"url": url, "ok": ok, "status": status, "ms": ms, "bytes": size})
         elif route == "/api/tools/game":
             self._post_tool_game(body)
+        elif route == "/api/tools/protocols":
+            self._post_tool_protocols(body)
         elif route == "/api/import":
             self._post_import(body)
         elif route == "/api/ai/analyze":
@@ -4626,12 +5646,14 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         try:
             text, used_model, usage = _web_ai_analyze(key, model, prompt)
         except urllib.error.HTTPError as e:
-            detail = ""
+            raw = ""
             try:
-                detail = e.read().decode("utf-8", "ignore")[:400]
+                raw = e.read().decode("utf-8", "ignore")[:600]
             except Exception:
                 pass
-            self._send_json({"error": f"OpenRouter HTTP {e.code}", "detail": detail}, 502)
+            message, hint = _web_ai_http_message(e.code, raw)
+            self._send_json({"error": message, "detail": raw, "hint": hint,
+                             "status": e.code}, 502)
             return
         except Exception as e:
             self._send_json({"error": f"AI request failed: {e}"}, 502)
@@ -4669,6 +5691,24 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             del services[delete]
         save_services(services)
         self._send_json({"profiles": services})
+
+    def _post_tool_protocols(self, body):
+        """Probe one target over UDP, TCP and DoT (TLS) side by side."""
+        host = (body.get("host") or "").strip()
+        if not host:
+            self._send_json({"error": "host required"}, 400)
+            return
+        try:
+            count = max(1, min(10, int(body.get("count") or 3)))
+        except (TypeError, ValueError):
+            count = 3
+        packet = _build_dns_query("google.com")
+        results = {
+            "udp": _dns_probe_protocol(host, packet, count, 2.0, "udp"),
+            "tcp": _dns_probe_protocol(host, packet, count, 2.0, "tcp"),
+            "tls": _dns_probe_protocol(host, packet, count, 2.0, "tls"),
+        }
+        self._send_json({"host": host, "count": count, "results": results})
 
     def _post_tool_game(self, body):
         host = (body.get("host") or "").strip()
@@ -4711,6 +5751,13 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         count = _int("count", 3, 1, 10)
         workers = _int("workers", 64, 1, 512)
         chunk = _int("chunk", 100, 1, 5000)
+        proto = (query.get("proto", ["udp"])[0] or "udp").lower()
+        if proto not in ("udp", "tcp", "tls", "both", "auto"):
+            proto = "udp"
+        try:
+            timeout = max(0.3, min(10.0, float(query.get("timeout", ["1.5"])[0])))
+        except (TypeError, ValueError):
+            timeout = 1.5
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -4727,15 +5774,19 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         try:
             _web_history_load()
             emit({"type": "start", "total": len(targets), "count": count,
-                  "workers": workers, "chunk": chunk})
+                  "workers": workers, "chunk": chunk, "proto": proto,
+                  "timeout": timeout})
             if not targets:
                 emit({"type": "done", "summary": {"total": 0, "ok": 0, "failed": 0}})
                 return
 
             def run_one(target):
-                latency, loss, jitter = _web_ping_blocking(target, count)
-                ok = latency < 9000
+                r = _web_ping_blocking(target, count, timeout, proto)
+                latency, loss, jitter = r["latency"], r["loss"], r["jitter"]
+                ok = r["ok"]
                 _web_fold_history(target, latency if ok else 2000.0, loss, jitter)
+                best_proto = next((k for k in ("udp", "tcp", "tls")
+                                   if r["proto_results"].get(k, {}).get("ok")), None)
                 return {
                     "type": "result",
                     "target": target,
@@ -4743,6 +5794,9 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
                     "loss": round(loss, 1),
                     "jitter": round(jitter, 1) if ok else None,
                     "status": "ok" if ok else "fail",
+                    "proto": proto,
+                    "proto_used": best_proto,
+                    "proto_results": r["proto_results"],
                 }
 
             done = 0

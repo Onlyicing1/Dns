@@ -51,16 +51,27 @@ will come up on your LAN automatically.
 
 - **Bulk Scanner** — paste thousands of DNS servers (one per line or comma
   separated). They are scanned in parallel with a thread pool; tune **workers**
-  (concurrency) and **chunk** (how often progress is reported). Results stream in
-  live with latency bars, jitter, loss and status. Filter, show alive-only, and
+  (concurrency), **chunk** (how often progress is reported), **protocol** and
+  **timeout**. The protocol can be **UDP (53)**, **TCP (53)**, **TLS / DoT (853)**,
+  **UDP + TCP** together, or **Auto** (try each until one answers) — the results
+  table shows which protocol actually replied. Results stream in live with
+  latency bars, jitter, loss and status. Filter, show alive-only, and
   **export CSV**.
+- **Navigation** — a hamburger menu (top-left) opens a side drawer listing every
+  section; the current section is highlighted as you scroll.
+- **Auto-Test** — a timer that re-runs the scan on an interval, forever (or for a
+  fixed number of cycles). Fully customizable: interval, protocol, packets,
+  workers, target source (scanner box or saved list), and latency/jitter/loss
+  alert thresholds. A countdown ring shows the time to the next cycle, and a live
+  log records every cycle and alert.
 - **Stability** — deterministic 0–100 ranking built up across every scan and
   **saved to disk** (`~/.dns_console_history.json`) so it keeps building between
   sessions. Clear it any time.
 - **Saved DNS** — add one, or paste many at once. Persisted to `~/dns_list.txt`
   and shared with the CLI's DNS manager.
 - **Probe Lab** — DNS resolve, TCP ping, TLS handshake, HTTP GET, **game
-  latency** (protocol-aware, per profile) and MTU advice.
+  latency** (protocol-aware, per profile), MTU advice, and a **UDP / TCP / TLS**
+  probe that tests all three DNS transports side by side.
 - **Network · VPN** — public egress IP, country, ISP, active interface, VPN
   tunnel flag and MTU — check what your VPN exposes.
 - **Device** — a read-only Shizuku snapshot (operator, network type, interface, VPN).
@@ -73,9 +84,14 @@ will come up on your LAN automatically.
   containers (`.zip`, `.xlsx`, `.ods`, `.docx`). Then save the list or scan it
   straight away.
 - **AI Analysis (OpenRouter)** — send your scan or history to an OpenRouter model
-  for a plain-English ranking and a primary/backup recommendation. Paste a key in
-  the UI (kept in your browser) or start the server with `--api-key` /
-  `$OPENROUTER_API_KEY`.
+  for a plain-English ranking and a primary/backup recommendation. A model menu
+  lets you filter the full OpenRouter catalogue by **free** or **paid** and shows
+  each model's input price. Paste a key in the UI (kept in your browser) or start
+  the server with `--api-key` / `$OPENROUTER_API_KEY`.
+- **Appearance** — six theme presets plus custom accent/text/muted/background
+  colours, font family, font size, UI density and effect toggles (aurora, grid,
+  scanlines, sparkles). Saved in your browser and applied instantly.
+
 
 Everything runs on your machine; no external services, no dependencies beyond
 the Python standard library. The only outbound call is to OpenRouter, and only
