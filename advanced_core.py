@@ -2994,30 +2994,8 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
   <!-- ---------- DASHBOARD ---------- -->
   <main class="deck" id="deck" aria-label="dashboard">
 
-    <!-- 00 IMPORT -->
-    <section class="panel g4 accent-violet" id="panel-import">
-      <div class="panel-head">
-        <h2><span class="idx">00</span> Import DNS list</h2>
-        <div class="head-actions">
-          <button class="btn ghost" id="import-save">save to list</button>
-          <button class="btn ghost" id="import-scan">scan now</button>
-        </div>
-      </div>
-      <p class="hint">Drop any file — .txt, .csv, .json, .log, .md, .xml, .html, .zip, .gz, .xlsx, .docx. Every IPv4 address (and known resolver) is detected.</p>
-      <div class="drop" id="drop">
-        <input type="file" id="file" hidden multiple />
-        <div class="drop-icon">⤓</div>
-        <div class="drop-text">Drop files here or <span class="link" id="browse">browse</span></div>
-        <div class="drop-sub">or paste raw text below</div>
-      </div>
-      <textarea id="paste-import" class="bulk" spellcheck="false"
-        placeholder="…or paste anything containing DNS servers (text, config dumps, logs)"></textarea>
-      <button class="btn ghost wide" id="import-paste">extract from pasted text</button>
-      <div class="outbox" id="import-out">No file imported yet.</div>
-    </section>
-
-    <!-- 01 SCANNER -->
-    <section class="panel g4 accent-cyan" id="panel-scanner">
+    <!-- ---------- PRIMARY: scanner (large, results live here) ---------- -->
+<section class="panel accent-cyan" id="panel-scanner">
       <div class="panel-head">
         <h2><span class="idx">01</span> Bulk Scanner</h2>
         <div class="head-actions">
@@ -3086,7 +3064,32 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 02 AUTO-TEST -->
-    <section class="panel g4 accent-amber" id="panel-autotest">
+
+    <!-- ---------- RAIL: everything else (compact, scrolls on its own) ---------- -->
+    <div class="rail" id="rail">
+<section class="panel accent-violet" id="panel-import">
+      <div class="panel-head">
+        <h2><span class="idx">00</span> Import DNS list</h2>
+        <div class="head-actions">
+          <button class="btn ghost" id="import-save">save to list</button>
+          <button class="btn ghost" id="import-scan">scan now</button>
+        </div>
+      </div>
+      <p class="hint">Drop any file — .txt, .csv, .json, .log, .md, .xml, .html, .zip, .gz, .xlsx, .docx. Every IPv4 address (and known resolver) is detected.</p>
+      <div class="drop" id="drop">
+        <input type="file" id="file" hidden multiple />
+        <div class="drop-icon">⤓</div>
+        <div class="drop-text">Drop files here or <span class="link" id="browse">browse</span></div>
+        <div class="drop-sub">or paste raw text below</div>
+      </div>
+      <textarea id="paste-import" class="bulk" spellcheck="false"
+        placeholder="…or paste anything containing DNS servers (text, config dumps, logs)"></textarea>
+      <button class="btn ghost wide" id="import-paste">extract from pasted text</button>
+      <div class="outbox" id="import-out">No file imported yet.</div>
+    </section>
+
+    <!-- 01 SCANNER -->
+<section class="panel accent-amber" id="panel-autotest">
       <div class="panel-head">
         <h2><span class="idx">02</span> Auto-Test <span class="badge" id="auto-state">idle</span></h2>
         <div class="head-actions">
@@ -3166,7 +3169,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 03 STABILITY -->
-    <section class="panel g2 accent-violet" id="panel-stability">
+<section class="panel accent-violet" id="panel-stability">
       <div class="panel-head">
         <h2><span class="idx">03</span> Stability</h2>
         <div class="head-actions">
@@ -3179,7 +3182,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 04 SAVED DNS -->
-    <section class="panel g2 accent-green" id="panel-list">
+<section class="panel accent-green" id="panel-list">
       <div class="panel-head">
         <h2><span class="idx">04</span> Saved DNS <span class="badge" id="dns-count">0</span></h2>
         <div class="head-actions"><button class="btn ghost" id="clear-dns">clear all</button></div>
@@ -3195,7 +3198,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 05 PROBE LAB -->
-    <section class="panel g2 accent-pink" id="panel-tools">
+<section class="panel accent-pink" id="panel-tools">
       <div class="panel-head"><h2><span class="idx">05</span> Probe Lab</h2></div>
       <div class="tool-row">
         <input type="text" id="tool-host" placeholder="host / IP" spellcheck="false" value="1.1.1.1" />
@@ -3225,7 +3228,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 06 NETWORK / VPN -->
-    <section class="panel g2 accent-amber" id="panel-network">
+<section class="panel accent-amber" id="panel-network">
       <div class="panel-head">
         <h2><span class="idx">06</span> Network · VPN</h2>
         <button class="btn ghost" id="refresh-network">refresh</button>
@@ -3242,7 +3245,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 07 DEVICE -->
-    <section class="panel g4 accent-blue" id="panel-device">
+<section class="panel accent-blue" id="panel-device">
       <div class="panel-head">
         <h2><span class="idx">07</span> Device</h2>
         <button class="btn ghost" id="refresh-device">refresh</button>
@@ -3258,7 +3261,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 08 APN BENCHMARK -->
-    <section class="panel g2 accent-violet" id="panel-apn">
+<section class="panel accent-violet" id="panel-apn">
       <div class="panel-head">
         <h2><span class="idx">08</span> APN Benchmark</h2>
         <div class="head-actions">
@@ -3274,7 +3277,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 09 GAME PROFILES -->
-    <section class="panel g2 accent-green" id="panel-profiles">
+<section class="panel accent-green" id="panel-profiles">
       <div class="panel-head"><h2><span class="idx">09</span> Game Profiles</h2></div>
       <div class="add-row">
         <input type="text" id="prof-name" placeholder="name e.g. Valorant" spellcheck="false" />
@@ -3285,7 +3288,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 10 DIAGNOSIS -->
-    <section class="panel g2 accent-cyan" id="panel-diagnosis">
+<section class="panel accent-cyan" id="panel-diagnosis">
       <div class="panel-head">
         <h2><span class="idx">10</span> Diagnosis</h2>
         <button class="btn ghost" id="diag-run">run</button>
@@ -3294,7 +3297,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 11 AI ANALYSIS -->
-    <section class="panel g3 accent-pink" id="panel-ai">
+<section class="panel accent-pink" id="panel-ai">
       <div class="panel-head">
         <h2><span class="idx">11</span> AI Analysis <span class="badge ai-badge" id="ai-badge">OpenRouter</span></h2>
         <div class="head-actions">
@@ -3331,7 +3334,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </section>
 
     <!-- 12 APPEARANCE -->
-    <section class="panel g3 accent-blue" id="panel-appearance">
+<section class="panel accent-blue" id="panel-appearance">
       <div class="panel-head">
         <h2><span class="idx">12</span> Appearance</h2>
         <div class="head-actions">
@@ -3399,6 +3402,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         </div>
       </div>
     </section>
+    </div>
   </main>
 
   <!-- ---------- FOCUS OVERLAY (single wrapper; only intercepts clicks while open) ---------- -->
@@ -3420,7 +3424,7 @@ _WEB_APP_CSS = r"""/* ==========================================================
 
 :root {
   --bg: #08060f;
-  --panel: rgba(18, 15, 34, 0.72);
+  --panel: #120f22;
   --panel-solid: #140f24;
   --line: rgba(150, 140, 200, 0.14);
   --line-2: rgba(150, 140, 200, 0.28);
@@ -3447,7 +3451,7 @@ _WEB_APP_CSS = r"""/* ==========================================================
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html, body { height: 100%; }
+html, body { height: 100%; overscroll-behavior: none; }
 
 body {
   margin: 0;
@@ -3462,6 +3466,11 @@ body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Only real scroll containers scroll, and they never chain to the page. */
+.rail, .panel-body-inner, .table-wrap, .outbox, .list, .drawer-nav { overscroll-behavior: contain; }
+/* Slim, quiet scrollbars so a tiny gesture does not look like a big jump. */
+.rail, .panel-body-inner, .table-wrap, .outbox { scrollbar-width: thin; }
 
 /* ---------- background layers ---------- */
 .bg-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
@@ -3502,7 +3511,7 @@ body.no-sparkles .bg-layer::after { display: none; }
 .topbar {
   flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
   height: 56px; padding: 0 16px; z-index: 20;
-  background: rgba(9, 8, 18, 0.72); border-bottom: 1px solid var(--line); backdrop-filter: blur(9px);
+  background: rgba(9, 8, 18, 0.94); border-bottom: 1px solid var(--line);
 }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 14px; }
 .brand { display: inline-flex; align-items: center; font-weight: 800; font-size: 15px; letter-spacing: 0.01em; }
@@ -3563,24 +3572,33 @@ body.no-sparkles .bg-layer::after { display: none; }
 .cb-actions { margin-left: auto; display: flex; gap: 8px; }
 
 /* ============================================================
-   DASHBOARD DECK — fixed 3 rows over a 12-col grid, no page scroll
+   LAYOUT — one big Scanner on the left, a compact rail on the right.
+   Each column scrolls on its own; the page itself never scrolls.
    ============================================================ */
 .deck {
   flex: 1 1 auto; min-height: 0; overflow: hidden;
-  display: grid; gap: 12px; padding: 12px;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: repeat(3, minmax(0, 1fr));
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 32%);
+  gap: 12px; padding: 12px;
 }
-.g2 { grid-column: span 2; }
-.g3 { grid-column: span 3; }
-.g4 { grid-column: span 4; }
+
+/* the rail is the only scrolling column on a desktop-sized screen */
+.rail {
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 12px; padding-right: 2px;
+  scrollbar-width: thin;
+}
+.rail > .panel { flex: 0 0 auto; }
+/* No inner scrollers inside the rail: it is the ONE thing that scrolls, so a
+   gesture can never chain from a panel to the rail to the page. */
+.rail > .panel > .panel-body > .panel-body-inner { max-height: none; overflow: visible; }
 
 /* ---------- panel ---------- */
 .panel {
   position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow); backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
 }
+#panel-scanner { min-height: 0; }
 .panel::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--pa, var(--acc)), transparent);
@@ -3622,6 +3640,9 @@ body.no-sparkles .bg-layer::after { display: none; }
   display: flex; flex-direction: column; gap: 10px;
   transition: opacity 0.18s;
 }
+/* In the Scanner, the body itself does not scroll — only the results table
+   does, so a stray scroll can never push the results out of view. */
+#panel-scanner > .panel-body > .panel-body-inner { overflow: hidden; }
 .panel.collapsed .panel-body { grid-template-rows: 0fr; }
 .panel.collapsed .panel-body-inner { opacity: 0; pointer-events: none; }
 
@@ -3712,22 +3733,30 @@ textarea.targets { min-height: 78px; }
 .metric.amber { --mc: var(--amber); }
 .metric.pink { --mc: var(--pink); }
 
-/* ---------- results table ---------- */
-.table-tools { display: flex; gap: 10px; align-items: center; }
+/* ---------- results table (plain + minimal) ---------- */
+.table-tools { display: flex; gap: 10px; align-items: center; flex: 0 0 auto; }
 .table-tools input[type="text"] { flex: 1; }
-.table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
-.results { width: 100%; border-collapse: collapse; font-size: 12px; }
-.results th {
-  position: sticky; top: 0; z-index: 1; text-align: left; padding: 8px 10px;
-  background: var(--panel-solid); color: var(--dim-2); font-weight: 600;
-  font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+/* The results are the point of the panel: give them a guaranteed floor so they
+   can never be squeezed to nothing, and let only this box scroll. */
+.table-wrap {
+  flex: 1 1 auto; min-height: 180px; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--line); border-radius: 10px; background: rgba(6, 6, 14, 0.35);
 }
-.results td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.results { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.results th {
+  position: sticky; top: 0; z-index: 1; text-align: left; padding: 7px 10px;
+  background: var(--panel-solid); color: var(--dim-2); font-weight: 600;
+  font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+}
+.results td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.results tbody tr:last-child td { border-bottom: 0; }
 .results tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
-.results .empty td { text-align: center; color: var(--dim-2); padding: 18px; }
+.results .empty td { text-align: center; color: var(--dim-2); padding: 22px; }
+.results td:nth-child(1) { color: var(--dim-2); font-family: var(--mono); font-size: 11px; width: 34px; }
+.results td:nth-child(2) { font-family: var(--mono); }
 .bar-cell { display: flex; align-items: center; gap: 8px; }
-.mini-bar { height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--acc), var(--green)); min-width: 3px; }
-.geo-cell { white-space: nowrap; }
+.mini-bar { height: 5px; border-radius: 999px; background: var(--acc); min-width: 3px; }
+.geo-cell { white-space: nowrap; color: var(--dim); }
 
 .pill { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
 .pill.ok { background: rgba(55, 255, 139, 0.14); color: var(--green); }
@@ -3911,21 +3940,24 @@ textarea.targets { min-height: 78px; }
 /* ---------- accessibility ---------- */
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--acc) 70%, transparent); outline-offset: 2px; }
 
-/* ---------- responsive: stack + allow page scroll on small screens ---------- */
-@media (max-width: 1180px) {
+/* ---------- responsive ---------- */
+/* Below ~1080px the two columns no longer fit side by side: stack them and let
+   the page scroll. Each panel also gets a sane floor so nothing is crushed. */
+@media (max-width: 1080px) {
   body { overflow: auto; }
   .deck {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-template-rows: none; grid-auto-rows: minmax(210px, auto);
-    height: auto; overflow: visible;
+    display: flex; flex-direction: column; height: auto; overflow: visible;
+    padding: 10px;
   }
-  .g2, .g3 { grid-column: span 6; }
-  .g4 { grid-column: span 12; }
+  .deck > #panel-scanner { min-height: 460px; }
+  .rail { overflow: visible; }
+  .rail > .panel > .panel-body > .panel-body-inner { max-height: none; }
+  .panel { min-height: 240px; }
 }
 @media (max-width: 720px) {
-  .deck { grid-template-columns: 1fr; padding: 10px; }
-  .g2, .g3, .g4 { grid-column: span 1; }
+  .deck { padding: 8px; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
+  .controls .field { width: 46%; }
   .focus-frame { width: 100%; height: 96vh; }
   .clock { display: none; }
 }
@@ -4137,6 +4169,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (!target) return;
     if (focusedPanel && focusedPanel !== target) closeFocus();
     togglePanel(target, false);
+    target.scrollIntoView({ block: "nearest", behavior: "smooth" });
     target.classList.remove("flash");
     void target.offsetWidth;
     target.classList.add("flash");
@@ -4270,6 +4303,7 @@ _WEB_APP_JS = r"""/* ===========================================================
         runBtn.disabled = false;
         runBtn.querySelector(".run-label").textContent = "RUN SCAN";
         updateMetrics();
+        renderResultsNow();   // flush the last row; a deferred rAF can miss it
         if (scanDoneHook) scanDoneHook(rows.slice());
         resolve(rows.slice());
       }
