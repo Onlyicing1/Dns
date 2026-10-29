@@ -1,8 +1,15 @@
-import os, sys, re, time, urllib.request, json, random, asyncio, socket
+import os, sys, re, time, urllib.request, urllib.error, json, random, asyncio, socket
+import argparse
 import logging
 import hashlib
+import platform
 import secrets
+import shutil
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Dict, List, Any, Callable
+from urllib.parse import urlparse, parse_qs
 
 # Force UTF-8 stdout regardless of the Termux locale
 try:
@@ -2542,6 +2549,1235 @@ def manage_custom_profiles():
 
 
 # ============================================================
+#  LOCAL WEB CONSOLE  (MENU KEY: W)
+#  A dependency-free HTTP dashboard (Python standard library only)
+#  that reuses the measurement helpers above. The UI is embedded as
+#  strings below, so this single file is fully self-contained: there
+#  is no web_server.py and no web/ folder to keep alongside it.
+# ============================================================
+
+_WEB_INDEX_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07080b" />
+  <title>DNS CONSOLE // local</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="pulse-dot" id="conn-dot"></span>
+      <h1>DNS<span class="thin">CONSOLE</span></h1>
+      <span class="tag">local node</span>
+    </div>
+    <div class="topbar-right">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="status" id="conn-text">connecting…</div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- ---------- SCANNER ---------- -->
+    <section class="panel span-2" id="panel-scanner">
+      <div class="panel-head">
+        <h2><span class="idx">01</span> Scanner</h2>
+        <div class="head-actions">
+          <button class="ghost" id="use-list" title="Load your saved DNS list">use saved list</button>
+          <button class="ghost" id="clear-targets">clear</button>
+        </div>
+      </div>
+
+      <div class="target-input">
+        <textarea id="targets" spellcheck="false"
+          placeholder="One DNS server per line, or comma separated&#10;8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, dns.google"></textarea>
+      </div>
+
+      <div class="controls">
+        <label class="field">
+          <span>packets</span>
+          <input type="number" id="count" min="1" max="10" value="3" />
+        </label>
+        <button class="primary" id="run">
+          <span class="run-label">RUN SCAN</span>
+        </button>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="progress-text" id="progress-text">idle</div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><span class="m-label">best</span><span class="m-val" id="m-best">—</span></div>
+        <div class="metric"><span class="m-label">avg latency</span><span class="m-val" id="m-avg">—</span></div>
+        <div class="metric"><span class="m-label">packet loss</span><span class="m-val" id="m-loss">—</span></div>
+        <div class="metric"><span class="m-label">responses</span><span class="m-val" id="m-resp">—</span></div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="results" id="results">
+          <thead>
+            <tr>
+              <th>#</th><th>DNS Server</th><th>Latency</th><th>Jitter</th><th>Loss</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr class="empty"><td colspan="6">No scan yet — hit RUN SCAN.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---------- STABILITY ---------- -->
+    <section class="panel" id="panel-stability">
+      <div class="panel-head">
+        <h2><span class="idx">02</span> Stability</h2>
+        <button class="ghost" id="refresh-stab">refresh</button>
+      </div>
+      <p class="hint">Ranked across every scan run this session.</p>
+      <div class="stab-list" id="stab-list">
+        <div class="empty-note">Run a scan to build history.</div>
+      </div>
+    </section>
+
+    <!-- ---------- DNS LIST ---------- -->
+    <section class="panel" id="panel-list">
+      <div class="panel-head">
+        <h2><span class="idx">03</span> Saved DNS</h2>
+      </div>
+      <div class="add-row">
+        <input type="text" id="new-dns" placeholder="add address e.g. 8.8.4.4" spellcheck="false" />
+        <button class="primary small" id="add-dns">add</button>
+      </div>
+      <ul class="dns-list" id="dns-list"></ul>
+    </section>
+
+    <!-- ---------- TOOLS ---------- -->
+    <section class="panel" id="panel-tools">
+      <div class="panel-head">
+        <h2><span class="idx">04</span> Probe Lab</h2>
+      </div>
+      <div class="tool-row">
+        <input type="text" id="tool-host" placeholder="host / IP" spellcheck="false" value="1.1.1.1" />
+      </div>
+      <div class="tool-btns">
+        <button class="chip" data-tool="resolve">DNS resolve</button>
+        <button class="chip" data-tool="tcp">TCP ping</button>
+        <button class="chip" data-tool="tls">TLS handshake</button>
+        <button class="chip" data-tool="http">HTTP GET</button>
+        <button class="chip" data-tool="mtu">MTU advice</button>
+      </div>
+      <div class="tool-out" id="tool-out">Pick a probe to test a host.</div>
+    </section>
+
+    <!-- ---------- DEVICE ---------- -->
+    <section class="panel" id="panel-device">
+      <div class="panel-head">
+        <h2><span class="idx">05</span> Device</h2>
+        <button class="ghost" id="refresh-device">refresh</button>
+      </div>
+      <p class="hint">Read-only snapshot via Shizuku (getprop / ip route).</p>
+      <div class="device-grid" id="device-grid">
+        <div class="dev-cell"><span class="dev-k">shizuku</span><span class="dev-v" id="dev-shizuku">…</span></div>
+        <div class="dev-cell"><span class="dev-k">operator</span><span class="dev-v" id="dev-operator">…</span></div>
+        <div class="dev-cell"><span class="dev-k">network</span><span class="dev-v" id="dev-net">…</span></div>
+        <div class="dev-cell"><span class="dev-k">interface</span><span class="dev-v" id="dev-iface">…</span></div>
+        <div class="dev-cell"><span class="dev-k">vpn tunnel</span><span class="dev-v" id="dev-vpn">…</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>DNS CONSOLE</span>
+    <span class="dot">•</span>
+    <span>stdlib server, no deps</span>
+    <span class="dot">•</span>
+    <span id="footer-port">—</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+"""
+_WEB_APP_CSS = r"""/* ============================================================
+   DNS CONSOLE — network operations terminal aesthetic
+   ============================================================ */
+
+:root {
+  --bg: #06070a;
+  --bg-2: #0b0e13;
+  --panel: rgba(13, 17, 22, 0.74);
+  --panel-solid: #0d1116;
+  --ink: #d6ece7;
+  --dim: #64757d;
+  --dim-2: #3d4b52;
+  --line: rgba(55, 245, 212, 0.14);
+  --line-strong: rgba(55, 245, 212, 0.34);
+  --acc: #37f5d4;
+  --acc-dim: rgba(55, 245, 212, 0.16);
+  --amber: #ffb347;
+  --danger: #ff5c6c;
+  --good: #4bffa5;
+  --radius: 3px;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --display: "Chakra Petch", "JetBrains Mono", sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  background:
+    radial-gradient(1200px 700px at 12% -10%, rgba(55, 245, 212, 0.09), transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, rgba(255, 179, 71, 0.06), transparent 55%),
+    radial-gradient(800px 800px at 50% 120%, rgba(55, 245, 212, 0.05), transparent 60%),
+    linear-gradient(180deg, var(--bg-2), var(--bg));
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100%;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- atmosphere overlays ---- */
+.scanlines {
+  position: fixed; inset: 0; pointer-events: none; z-index: 60; opacity: 0.32;
+  background: repeating-linear-gradient(
+    180deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.28) 3px);
+  mix-blend-mode: multiply;
+}
+.grain {
+  position: fixed; inset: -50%; pointer-events: none; z-index: 59; opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grainShift 6s steps(6) infinite;
+}
+@keyframes grainShift {
+  0% { transform: translate(0,0); } 20% { transform: translate(-3%,2%); }
+  40% { transform: translate(2%,-3%); } 60% { transform: translate(-2%,-2%); }
+  80% { transform: translate(3%,3%); } 100% { transform: translate(0,0); }
+}
+
+/* ---- topbar ---- */
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 16px 26px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(6,7,10,0.94), rgba(6,7,10,0.6));
+  backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand h1 {
+  font-family: var(--display); font-weight: 700; letter-spacing: 3px;
+  font-size: 20px; color: var(--ink);
+}
+.brand h1 .thin { color: var(--acc); font-weight: 400; }
+.tag {
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--dim); border: 1px solid var(--line); padding: 2px 7px; border-radius: 999px;
+}
+.pulse-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--dim);
+  box-shadow: 0 0 0 0 rgba(55,245,212,0.5);
+}
+.pulse-dot.live { background: var(--acc); animation: pulse 2s infinite; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(55,245,212,0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(55,245,212,0); }
+  100% { box-shadow: 0 0 0 0 rgba(55,245,212,0); }
+}
+.topbar-right { display: flex; align-items: center; gap: 18px; }
+.clock { font-size: 15px; letter-spacing: 1px; color: var(--acc); font-variant-numeric: tabular-nums; }
+.status { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+
+/* ---- layout ---- */
+.grid {
+  display: grid; gap: 16px; padding: 22px 26px 60px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 1500px; margin: 0 auto;
+}
+.span-2 { grid-column: span 2; }
+
+.panel {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px 20px;
+  backdrop-filter: blur(6px);
+  opacity: 0; transform: translateY(14px);
+  animation: reveal 0.6s cubic-bezier(.2,.7,.2,1) forwards;
+}
+#panel-scanner { animation-delay: .05s; }
+#panel-stability { animation-delay: .14s; }
+#panel-list { animation-delay: .2s; }
+#panel-tools { animation-delay: .26s; }
+#panel-device { animation-delay: .32s; }
+@keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+
+/* corner ticks */
+.panel::before, .panel::after {
+  content: ""; position: absolute; width: 10px; height: 10px; pointer-events: none;
+  border-color: var(--line-strong);
+}
+.panel::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+.panel::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
+
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.panel-head h2 {
+  font-family: var(--display); font-weight: 600; font-size: 15px;
+  letter-spacing: 2.5px; text-transform: uppercase; color: var(--ink);
+  display: flex; align-items: center; gap: 10px;
+}
+.panel-head .idx {
+  font-size: 11px; color: var(--acc); border: 1px solid var(--line-strong);
+  padding: 1px 6px; border-radius: 2px; letter-spacing: 1px;
+}
+.head-actions { display: flex; gap: 8px; }
+.hint { color: var(--dim); font-size: 11.5px; margin-bottom: 12px; }
+
+/* ---- controls ---- */
+textarea, input[type="text"], input[type="number"] {
+  width: 100%; background: rgba(3,5,8,0.7); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 13.5px; padding: 10px 12px;
+  outline: none; transition: border-color .18s, box-shadow .18s;
+}
+textarea { min-height: 96px; resize: vertical; line-height: 1.7; }
+textarea::placeholder, input::placeholder { color: var(--dim-2); }
+textarea:focus, input:focus {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 3px var(--acc-dim), inset 0 0 22px rgba(55,245,212,0.05);
+}
+
+.controls { display: flex; align-items: flex-end; gap: 14px; margin-top: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; width: 110px; }
+.field span { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+.field input { text-align: center; }
+
+button { font-family: var(--mono); cursor: pointer; border-radius: var(--radius); }
+
+.primary {
+  position: relative; overflow: hidden;
+  background: var(--acc); color: #04201b; border: none;
+  font-weight: 700; letter-spacing: 2px; font-size: 13px;
+  padding: 12px 26px; text-transform: uppercase;
+  box-shadow: 0 0 24px rgba(55,245,212,0.25);
+  transition: transform .12s, box-shadow .2s;
+}
+.primary:hover { transform: translateY(-1px); box-shadow: 0 0 34px rgba(55,245,212,0.45); }
+.primary:active { transform: translateY(0); }
+.primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; transform: none; }
+.primary.small { padding: 9px 16px; font-size: 11px; }
+.primary::after {
+  content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  transform: skewX(-20deg);
+}
+.primary:not(:disabled):hover::after { animation: sweep .7s ease; }
+@keyframes sweep { to { left: 130%; } }
+
+.ghost {
+  background: transparent; color: var(--dim); border: 1px solid var(--line);
+  font-size: 11px; letter-spacing: 1px; padding: 6px 11px; text-transform: lowercase;
+  transition: color .16s, border-color .16s, background .16s;
+}
+.ghost:hover { color: var(--acc); border-color: var(--line-strong); background: var(--acc-dim); }
+
+/* ---- progress ---- */
+.progress-wrap { display: flex; align-items: center; gap: 14px; margin: 16px 0 6px; }
+.progress { flex: 1; height: 4px; background: rgba(255,255,255,0.05); border-radius: 999px; overflow: hidden; }
+.progress-bar {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--acc), var(--amber));
+  box-shadow: 0 0 12px var(--acc); transition: width .25s ease;
+}
+.progress-text { font-size: 11px; color: var(--dim); min-width: 130px; text-align: right; letter-spacing: 1px; }
+
+/* ---- metrics ---- */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0 18px; }
+.metric {
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(55,245,212,0.03), transparent);
+}
+.m-label { display: block; font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+.m-val { display: block; font-size: 20px; font-weight: 700; color: var(--acc); font-variant-numeric: tabular-nums; margin-top: 3px; }
+
+/* ---- results table ---- */
+.table-wrap { overflow-x: auto; }
+table.results { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.results th {
+  text-align: left; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--dim); padding: 8px 10px; border-bottom: 1px solid var(--line-strong);
+}
+table.results td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); font-variant-numeric: tabular-nums; }
+table.results tr.row-ok td { color: var(--ink); }
+table.results tbody tr { animation: rowIn .35s ease both; }
+@keyframes rowIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+table.results tr:hover td { background: rgba(55,245,212,0.05); }
+.empty td, .empty-note { color: var(--dim-2); font-style: italic; text-align: center; padding: 20px; }
+
+.pill {
+  display: inline-block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid;
+}
+.pill.ok { color: var(--good); border-color: rgba(75,255,165,0.4); background: rgba(75,255,165,0.08); }
+.pill.fail { color: var(--danger); border-color: rgba(255,92,108,0.4); background: rgba(255,92,108,0.08); }
+.pill.warn { color: var(--amber); border-color: rgba(255,179,71,0.4); background: rgba(255,179,71,0.08); }
+
+.bar-cell { display: flex; align-items: center; gap: 8px; }
+.mini-bar { height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--acc), var(--amber)); min-width: 2px; }
+
+/* ---- stability ---- */
+.stab-list { display: flex; flex-direction: column; gap: 8px; }
+.stab-item { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px; animation: rowIn .3s both; }
+.stab-item .ip { font-size: 13px; color: var(--ink); }
+.stab-item .meta { font-size: 10px; color: var(--dim); }
+.stab-score { font-size: 16px; font-weight: 700; color: var(--acc); }
+.stab-track { grid-column: 1 / -1; height: 4px; background: rgba(255,255,255,0.05); border-radius: 999px; overflow: hidden; }
+.stab-fill { height: 100%; background: linear-gradient(90deg, var(--acc), var(--amber)); }
+
+/* ---- dns list ---- */
+.add-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.dns-list { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.dns-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 11px;
+  font-size: 13px; animation: rowIn .3s both;
+}
+.dns-list li:hover { border-color: var(--line-strong); }
+.dns-list .del {
+  background: transparent; border: 1px solid rgba(255,92,108,0.3); color: var(--danger);
+  font-size: 11px; padding: 2px 8px; letter-spacing: 1px;
+}
+.dns-list .del:hover { background: rgba(255,92,108,0.12); }
+
+/* ---- tools ---- */
+.tool-row { margin-bottom: 10px; }
+.tool-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chip {
+  background: transparent; border: 1px solid var(--line); color: var(--dim);
+  padding: 7px 12px; font-size: 11.5px; letter-spacing: 1px; transition: all .16s;
+}
+.chip:hover { color: var(--acc); border-color: var(--line-strong); background: var(--acc-dim); }
+.chip.active { color: #04201b; background: var(--acc); border-color: var(--acc); }
+.tool-out {
+  border: 1px dashed var(--line); border-radius: var(--radius); padding: 14px;
+  font-size: 12.5px; color: var(--dim); min-height: 64px; white-space: pre-wrap;
+  background: rgba(0,0,0,0.25);
+}
+.tool-out .k { color: var(--acc); }
+.tool-out .v { color: var(--ink); }
+.tool-out .err { color: var(--danger); }
+
+/* ---- device panel ---- */
+.device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.dev-cell {
+  display: flex; flex-direction: column; gap: 3px;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px;
+  background: linear-gradient(180deg, rgba(55,245,212,0.03), transparent);
+}
+.dev-k { font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+.dev-v { font-size: 13px; color: var(--ink); word-break: break-all; }
+.dev-v.on { color: var(--good); }
+.dev-v.off { color: var(--dim-2); }
+
+/* ---- footer ---- */
+.footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  display: flex; gap: 10px; align-items: center; justify-content: center;
+  padding: 8px; font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--dim); background: linear-gradient(0deg, rgba(6,7,10,0.95), transparent);
+  pointer-events: none;
+}
+.footer .dot { color: var(--acc); }
+
+/* ---- responsive ---- */
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; padding: 16px 14px 60px; }
+  .span-2 { grid-column: span 1; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .topbar { padding: 12px 16px; }
+  .brand h1 { font-size: 16px; }
+  .clock { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+"""
+_WEB_APP_JS = r"""/* ============================================================
+   DNS CONSOLE — front-end logic (vanilla, no build step)
+   ============================================================ */
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+
+  /* ---------- clock ---------- */
+  const clock = $("clock");
+  const tick = () => {
+    const d = new Date();
+    clock.textContent = d.toTimeString().slice(0, 8);
+  };
+  tick();
+  setInterval(tick, 1000);
+
+  /* ---------- connection state ---------- */
+  const dot = $("conn-dot");
+  const connText = $("conn-text");
+  fetch("/api/health")
+    .then((r) => r.json())
+    .then(() => { dot.classList.add("live"); connText.textContent = "online"; })
+    .catch(() => { connText.textContent = "offline"; });
+  $("footer-port").textContent = location.host;
+
+  /* ---------- helpers ---------- */
+  const fmt = (v, unit = "ms", digits = 1) =>
+    v == null ? "—" : `${Number(v).toFixed(digits)}${unit}`;
+
+  function statusPill(status) {
+    const s = el("span", "pill " + status);
+    s.textContent = status === "ok" ? "ok" : status === "warn" ? "spike" : "fail";
+    return s;
+  }
+
+  /* ---------- scanner ---------- */
+  const targetsBox = $("targets");
+  const runBtn = $("run");
+  const progressBar = $("progress-bar");
+  const progressText = $("progress-text");
+  const resultsBody = $("results-body");
+  let currentES = null;
+
+  const parseTargets = () =>
+    targetsBox.value
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  function resetMetrics() {
+    $("m-best").textContent = "—";
+    $("m-avg").textContent = "—";
+    $("m-loss").textContent = "—";
+    $("m-resp").textContent = "—";
+  }
+
+  function runScan() {
+    const targets = parseTargets();
+    if (!targets.length) {
+      progressText.textContent = "add a target first";
+      return;
+    }
+    const count = Math.max(1, Math.min(10, parseInt($("count").value, 10) || 3));
+
+    if (currentES) currentES.close();
+    resultsBody.innerHTML = "";
+    resetMetrics();
+    runBtn.disabled = true;
+    runBtn.querySelector(".run-label").textContent = "SCANNING…";
+
+    const rows = [];
+    const url = `/api/scan?targets=${encodeURIComponent(targets.join(","))}&count=${count}`;
+    const es = new EventSource(url);
+    currentES = es;
+
+    es.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+
+      if (msg.type === "start") {
+        progressText.textContent = `0 / ${msg.targets.length}`;
+        progressBar.style.width = "0%";
+      } else if (msg.type === "result") {
+        rows.push(msg);
+        renderResults(rows);
+      } else if (msg.type === "progress") {
+        const pct = (msg.done / msg.total) * 100;
+        progressBar.style.width = pct + "%";
+        progressText.textContent = `${msg.done} / ${msg.total}`;
+      } else if (msg.type === "summary") {
+        renderStability(msg.rows);
+      } else if (msg.type === "done") {
+        progressText.textContent =
+          `done — ${msg.summary.ok} ok / ${msg.summary.failed} failed`;
+        finish();
+      } else if (msg.type === "error") {
+        progressText.textContent = "error: " + msg.message;
+        finish();
+      }
+    };
+    es.onerror = () => {
+      if (runBtn.disabled) progressText.textContent = "stream closed";
+      finish();
+    };
+
+    function finish() {
+      if (currentES) { currentES.close(); currentES = null; }
+      runBtn.disabled = false;
+      runBtn.querySelector(".run-label").textContent = "RUN SCAN";
+      updateMetrics(rows);
+    }
+  }
+
+  function renderResults(rows) {
+    const maxLat = Math.max(...rows.filter((r) => r.latency != null).map((r) => r.latency), 1);
+    resultsBody.innerHTML = "";
+    rows.forEach((r, i) => {
+      const tr = el("tr", r.status === "ok" ? "row-ok" : "row-fail");
+      tr.appendChild(el("td", null, String(i + 1)));
+      tr.appendChild(el("td", null, r.target));
+
+      const latCell = el("td");
+      if (r.latency != null) {
+        const wrap = el("div", "bar-cell");
+        const bar = el("span", "mini-bar");
+        bar.style.width = Math.max(2, (r.latency / maxLat) * 70) + "px";
+        wrap.appendChild(bar);
+        wrap.appendChild(el("span", null, fmt(r.latency)));
+        latCell.appendChild(wrap);
+      } else latCell.textContent = "—";
+      tr.appendChild(latCell);
+
+      tr.appendChild(el("td", null, fmt(r.jitter)));
+      tr.appendChild(el("td", null, fmt(r.loss, "%", 0)));
+      const st = el("td");
+      st.appendChild(statusPill(r.status));
+      tr.appendChild(st);
+      resultsBody.appendChild(tr);
+    });
+  }
+
+  function updateMetrics(rows) {
+    const ok = rows.filter((r) => r.status === "ok" && r.latency != null);
+    if (!ok.length) return;
+    const best = ok.reduce((a, b) => (a.latency < b.latency ? a : b));
+    const avg = ok.reduce((s, r) => s + r.latency, 0) / ok.length;
+    const loss = rows.reduce((s, r) => s + (r.loss || 0), 0) / rows.length;
+    $("m-best").textContent = fmt(best.latency);
+    $("m-avg").textContent = fmt(avg);
+    $("m-loss").textContent = fmt(loss, "%", 0);
+    $("m-resp").textContent = `${ok.length}/${rows.length}`;
+  }
+
+  runBtn.addEventListener("click", runScan);
+  targetsBox.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan();
+  });
+  $("clear-targets").addEventListener("click", () => { targetsBox.value = ""; targetsBox.focus(); });
+  $("use-list").addEventListener("click", async () => {
+    const r = await fetch("/api/dns-list").then((x) => x.json());
+    if (r.list && r.list.length) {
+      targetsBox.value = r.list.join("\n");
+      progressText.textContent = `loaded ${r.list.length} from saved list`;
+    } else {
+      progressText.textContent = "saved list is empty";
+    }
+  });
+
+  /* ---------- stability ---------- */
+  function renderStability(rows) {
+    const box = $("stab-list");
+    box.innerHTML = "";
+    if (!rows || !rows.length) {
+      box.appendChild(el("div", "empty-note", "Run a scan to build history."));
+      return;
+    }
+    rows.forEach((r) => {
+      const item = el("div", "stab-item");
+      const left = el("div");
+      left.appendChild(el("div", "ip", r.target));
+      left.appendChild(el("div", "meta",
+        `${r.success_rate}% success · ${r.cycles} cycles · ${r.spikes} spikes`));
+      const score = el("div", "stab-score", r.score);
+      const track = el("div", "stab-track");
+      const fill = el("div", "stab-fill");
+      fill.style.width = r.score + "%";
+      track.appendChild(fill);
+      item.append(left, score, track);
+      box.appendChild(item);
+    });
+  }
+
+  async function loadStability() {
+    const r = await fetch("/api/stability").then((x) => x.json());
+    renderStability(r.rows);
+  }
+  $("refresh-stab").addEventListener("click", loadStability);
+  loadStability();
+
+  /* ---------- dns list ---------- */
+  const dnsList = $("dns-list");
+
+  function renderDnsList(list) {
+    dnsList.innerHTML = "";
+    if (!list || !list.length) {
+      const li = el("li", null, "no saved servers yet");
+      li.style.color = "var(--dim-2)";
+      li.style.fontStyle = "italic";
+      dnsList.appendChild(li);
+      return;
+    }
+    list.forEach((addr) => {
+      const li = el("li");
+      li.appendChild(el("span", null, addr));
+      const del = el("button", "del", "remove");
+      del.addEventListener("click", () => mutateList({ delete: addr }));
+      li.appendChild(del);
+      dnsList.appendChild(li);
+    });
+  }
+
+  async function mutateList(payload) {
+    const r = await fetch("/api/dns-list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((x) => x.json());
+    renderDnsList(r.list);
+  }
+
+  async function loadDnsList() {
+    const r = await fetch("/api/dns-list").then((x) => x.json());
+    renderDnsList(r.list);
+  }
+  $("add-dns").addEventListener("click", () => {
+    const v = $("new-dns").value.trim();
+    if (v) { mutateList({ add: v }); $("new-dns").value = ""; }
+  });
+  $("new-dns").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("add-dns").click();
+  });
+  loadDnsList();
+
+  /* ---------- probe tools ---------- */
+  const toolOut = $("tool-out");
+  const toolHost = $("tool-host");
+
+  function renderTool(html) { toolOut.innerHTML = html; }
+  const kv = (k, v) => `<span class="k">${k}</span> <span class="v">${v}</span>`;
+
+  const tools = {
+    resolve: async (host) => {
+      const r = await post("/api/tools/resolve", { host, dns: "8.8.8.8" });
+      return r.ip
+        ? kv("resolved", `${r.host} → ${r.ip}`) + "\n" + kv("query time", `${r.ms} ms`)
+        : `<span class="err">could not resolve ${host}</span>`;
+    },
+    tcp: async (host) => {
+      const r = await post("/api/tools/tcp", { host, port: 443 });
+      return r.ok ? kv("tcp 443", `${r.ms} ms (open)`)
+                  : `<span class="err">tcp 443 closed / unreachable</span>`;
+    },
+    tls: async (host) => {
+      const r = await post("/api/tools/tls", { host, port: 443 });
+      return r.ok ? kv("tls handshake", `${r.ms} ms`)
+                  : `<span class="err">tls handshake failed</span>`;
+    },
+    http: async (host) => {
+      const r = await post("/api/tools/http", { url: host });
+      return r.ok ? kv("http", `${r.status} · ${r.ms} ms · ${r.bytes} bytes`)
+                  : `<span class="err">http request failed</span>`;
+    },
+    mtu: async () => {
+      const r = await fetch("/api/mtu").then((x) => x.json());
+      return kv("recommended MTU", `${r.mtu}`) + "\n" +
+             kv("mode", r.mode) + "\n" +
+             kv("interface", r.interface || "unknown");
+    },
+  };
+
+  async function post(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((x) => x.json());
+  }
+
+  const hostFree = new Set(["mtu"]); // tools that don't need a host
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", async () => {
+      const tool = chip.dataset.tool;
+      const host = toolHost.value.trim();
+      if (!host && !hostFree.has(tool)) {
+        renderTool(`<span class="err">enter a host first</span>`);
+        return;
+      }
+      document.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      renderTool("probing…");
+      try {
+        renderTool(await tools[tool](host));
+      } catch (e) {
+        renderTool(`<span class="err">error: ${e}</span>`);
+      }
+    });
+  });
+
+  /* ---------- device snapshot ---------- */
+  function setDev(id, value, cls) {
+    const node = $(id);
+    node.textContent = value == null || value === "" ? "—" : value;
+    node.className = "dev-v" + (cls ? " " + cls : "");
+  }
+
+  async function loadDevice() {
+    try {
+      const r = await fetch("/api/device").then((x) => x.json());
+      setDev("dev-shizuku", r.shizuku ? "running" : "not running", r.shizuku ? "on" : "off");
+      setDev("dev-operator", r.operator);
+      setDev("dev-net", r.network_type);
+      setDev("dev-iface", r.interface);
+      setDev("dev-vpn", r.vpn ? "yes" : "no", r.vpn ? "on" : "off");
+    } catch (e) {
+      setDev("dev-shizuku", "error", "off");
+    }
+  }
+  $("refresh-device").addEventListener("click", loadDevice);
+  loadDevice();
+
+  /* ---------- keyboard: Enter in targets triggers scan on desktop ---------- */
+  targetsBox.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      runScan();
+    }
+  });
+
+  targetsBox.value = "8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4";
+})();
+"""
+
+_WEB_HISTORY = {}
+_WEB_HISTORY_LOCK = threading.Lock()
+
+
+def _web_pick_port(host, preferred, tries=25):
+    """Return the first free TCP port at or after `preferred`."""
+    for port in range(preferred, preferred + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, port))
+                return port
+            except OSError:
+                continue
+    return preferred
+
+
+def _web_open_browser(url):
+    """Best-effort: open `url` in the platform browser. Returns True if a launcher ran."""
+    candidates = []
+    if shutil.which("termux-open-url"):
+        candidates.append(["termux-open-url", url])
+    if shutil.which("termux-open"):
+        candidates.append(["termux-open", url])
+    if shutil.which("am"):
+        candidates.append(["am", "start", "-a", "android.intent.action.VIEW", "-d", url])
+    system = platform.system()
+    if system == "Darwin" and shutil.which("open"):
+        candidates.append(["open", url])
+    if system == "Windows":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return True
+        except Exception:
+            pass
+    if shutil.which("xdg-open"):
+        candidates.append(["xdg-open", url])
+    for cmd in candidates:
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            return True
+        except Exception:
+            continue
+    try:
+        import webbrowser
+        return webbrowser.open(url)
+    except Exception:
+        return False
+
+
+def _web_measure_http(url, timeout=6.0):
+    """Return (ok, status_code, elapsed_ms, size_bytes) for a URL."""
+    start = time.perf_counter()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "dns-console/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            body = res.read(65536)
+            elapsed = (time.perf_counter() - start) * 1000
+            return True, res.status, round(elapsed, 1), len(body)
+    except urllib.error.HTTPError as e:  # server answered, just not 2xx
+        elapsed = (time.perf_counter() - start) * 1000
+        return True, e.code, round(elapsed, 1), 0
+    except Exception:
+        elapsed = (time.perf_counter() - start) * 1000
+        return False, None, round(elapsed, 1), 0
+
+
+def _web_device_info():
+    """Read-only device/network snapshot via Shizuku (getprop / pgrep / ip route)."""
+    shizuku = is_shizuku_running()
+    operator, net_type = get_live_hardware_data()
+    iface = detect_active_interface()
+    return {
+        "shizuku": shizuku,
+        "operator": operator,
+        "network_type": net_type,
+        "interface": iface,
+        "vpn": is_vpn_interface(iface),
+    }
+
+
+def _web_mtu_recommendation():
+    """Read-only MTU recommendation (VPN -> fixed, cellular -> probing)."""
+    mtu, mode, iface = resolve_smart_mtu()
+    return {"mtu": mtu, "mode": mode, "interface": iface}
+
+
+def _web_fold_history(target, latency, loss, jitter):
+    with _WEB_HISTORY_LOCK:
+        update_stability_history(
+            _WEB_HISTORY,
+            [{"pair": [target], "latency": latency, "loss": loss, "jitter": jitter}],
+        )
+
+
+def _web_stability_snapshot(top_n=10):
+    with _WEB_HISTORY_LOCK:
+        if not _WEB_HISTORY:
+            return []
+        fastest = min(v["latency_sum"] / v["cycles"] for v in _WEB_HISTORY.values())
+        rows = []
+        for dns_ip, rec in _WEB_HISTORY.items():
+            score, success_rate, spike_ratio = compute_stability_score(rec, fastest)
+            rows.append({
+                "target": dns_ip,
+                "cycles": rec["cycles"],
+                "success_rate": round(success_rate * 100, 1),
+                "score": score,
+                "spikes": rec["jitter_spike_cycles"],
+                "status": stability_status_label(score, success_rate, spike_ratio),
+            })
+        rows.sort(key=lambda r: r["score"], reverse=True)
+        return rows[:top_n]
+
+
+class WebConsoleHandler(BaseHTTPRequestHandler):
+    server_version = "DnsConsole/1.0"
+
+    def log_message(self, *args):  # keep the console quiet
+        pass
+
+    def _send_bytes(self, body, content_type, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_json(self, obj, status=200):
+        self._send_bytes(json.dumps(obj).encode("utf-8"),
+                         "application/json; charset=utf-8", status)
+
+    def _send_text(self, text, content_type):
+        self._send_bytes(text.encode("utf-8"), content_type)
+
+    def _read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            return {}
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        route = parsed.path
+        query = parse_qs(parsed.query)
+
+        if route in ("/", "/index.html"):
+            self._send_text(_WEB_INDEX_HTML, "text/html; charset=utf-8")
+        elif route == "/app.css":
+            self._send_text(_WEB_APP_CSS, "text/css; charset=utf-8")
+        elif route == "/app.js":
+            self._send_text(_WEB_APP_JS, "application/javascript; charset=utf-8")
+        elif route == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+        elif route == "/api/health":
+            self._send_json({"ok": True, "service": "dns-console", "version": "1.0"})
+        elif route == "/api/dns-list":
+            self._send_json({"list": load_dns_list()})
+        elif route == "/api/stability":
+            self._send_json({"rows": _web_stability_snapshot()})
+        elif route == "/api/device":
+            self._send_json(_web_device_info())
+        elif route == "/api/mtu":
+            self._send_json(_web_mtu_recommendation())
+        elif route == "/api/scan":
+            self._stream_scan(query)
+        else:
+            self._send_json({"error": "unknown route"}, 404)
+
+    def do_POST(self):
+        route = urlparse(self.path).path
+        body = self._read_json()
+
+        if route == "/api/dns-list":
+            dns_list = load_dns_list()
+            add = (body.get("add") or "").strip()
+            delete = (body.get("delete") or "").strip()
+            if add and add not in dns_list:
+                dns_list.append(add)
+                save_dns_list(dns_list)
+            if delete and delete in dns_list:
+                dns_list.remove(delete)
+                save_dns_list(dns_list)
+            self._send_json({"list": load_dns_list()})
+        elif route == "/api/tools/resolve":
+            host = (body.get("host") or "").strip()
+            dns = (body.get("dns") or "8.8.8.8").strip()
+            if not host:
+                self._send_json({"error": "host required"}, 400)
+                return
+            start = time.perf_counter()
+            ip = native_dns_resolver(host, dns)
+            ms = round((time.perf_counter() - start) * 1000, 1)
+            self._send_json({"host": host, "dns": dns, "ip": ip, "ms": ms, "ok": bool(ip)})
+        elif route == "/api/tools/tcp":
+            host = (body.get("host") or "").strip()
+            port = int(body.get("port") or 443)
+            if not host:
+                self._send_json({"error": "host required"}, 400)
+                return
+            rtt, ok = tcp_ping(host, port, timeout=3.0)
+            self._send_json({"host": host, "port": port, "ok": ok,
+                             "ms": round(rtt, 1) if rtt else None})
+        elif route == "/api/tools/tls":
+            host = (body.get("host") or "").strip()
+            port = int(body.get("port") or 443)
+            if not host:
+                self._send_json({"error": "host required"}, 400)
+                return
+            ms, ok = asyncio.run(measure_tls_handshake(host, port))
+            self._send_json({"host": host, "port": port, "ok": ok,
+                             "ms": round(ms, 1) if ms else None})
+        elif route == "/api/tools/http":
+            url = (body.get("url") or "").strip()
+            if not url:
+                self._send_json({"error": "url required"}, 400)
+                return
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            ok, status, ms, size = _web_measure_http(url)
+            self._send_json({"url": url, "ok": ok, "status": status, "ms": ms, "bytes": size})
+        else:
+            self._send_json({"error": "unknown route"}, 404)
+
+    def _stream_scan(self, query):
+        """Server-sent events: stream one DNS result at a time as it completes."""
+        targets = []
+        for raw in query.get("targets", [""])[0].split(","):
+            raw = raw.strip()
+            if raw:
+                targets.append(raw)
+        if query.get("dnslist", ["0"])[0] in ("1", "true", "yes"):
+            targets = load_dns_list()
+        seen = set()
+        targets = [t for t in targets if not (t in seen or seen.add(t))]
+
+        try:
+            count = max(1, min(10, int(query.get("count", ["3"])[0])))
+        except ValueError:
+            count = 3
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def emit(obj):
+            self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
+            self.wfile.flush()
+
+        try:
+            emit({"type": "start", "targets": targets, "count": count})
+            if not targets:
+                emit({"type": "done", "summary": {"total": 0, "ok": 0, "failed": 0}})
+                return
+
+            async def run_one(target):
+                latency, loss, jitter = await async_ping_dns_core(target, 53, count)
+                ok = latency < 9000
+                _web_fold_history(target, latency if ok else 2000.0, loss, jitter)
+                return {
+                    "type": "result",
+                    "target": target,
+                    "latency": round(latency, 1) if ok else None,
+                    "loss": round(loss, 1),
+                    "jitter": round(jitter, 1) if ok else None,
+                    "status": "ok" if ok else "fail",
+                }
+
+            async def run_all():
+                done = 0
+                ok_count = 0
+                tasks = [asyncio.ensure_future(run_one(t)) for t in targets]
+                for fut in asyncio.as_completed(tasks):
+                    res = await fut
+                    done += 1
+                    if res["status"] == "ok":
+                        ok_count += 1
+                    emit(res)
+                    emit({"type": "progress", "done": done, "total": len(targets)})
+                return done, ok_count
+
+            done, ok_count = asyncio.run(run_all())
+            emit({"type": "summary", "rows": _web_stability_snapshot()})
+            emit({"type": "done", "summary": {"total": done, "ok": ok_count,
+                                              "failed": done - ok_count}})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client navigated away
+        except Exception as exc:  # never kill the server thread
+            try:
+                emit({"type": "error", "message": str(exc)})
+            except Exception:
+                pass
+
+
+def _web_install_termux_autostart():
+    """Install a Termux:Boot script that launches the console (background) at boot.
+
+    Requires the Termux:Boot app; the script lives in ~/.termux/boot/ and starts the
+    server on the LAN so the phone's dashboard is reachable from other devices."""
+    boot_dir = os.path.expanduser("~/.termux/boot")
+    script = os.path.join(boot_dir, "start-dns-console.sh")
+    target = os.path.abspath(__file__)
+    body = (
+        "#!/data/data/com.termux/files/usr/bin/sh\n"
+        "# Auto-generated by advanced_core.py --web --install-autostart\n"
+        "termux-wake-lock\n"
+        f"exec python {target} --web --all --background\n"
+    )
+    try:
+        os.makedirs(boot_dir, exist_ok=True)
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.chmod(script, 0o755)
+    except OSError as exc:
+        print(f"  [X] Could not install autostart: {exc}")
+        print("      (Are you in Termux? Is ~ writable?)")
+        return
+    print("=" * 62)
+    print("  Termux autostart installed")
+    print("=" * 62)
+    print(f"  Script : {script}")
+    print(f"  It runs: python {target} --web --all --background")
+    print()
+    print("  To activate it, install the Termux:Boot app from F-Droid,")
+    print("  open it once, then reboot. The console will start automatically.")
+    print("=" * 62)
+
+
+def _web_lan_ip():
+    """Best-effort local IP for the 'bind all interfaces' hint (no packets sent)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return "127.0.0.1"
+
+
+def web_console_main(argv=None):
+    parser = argparse.ArgumentParser(description="Local web console for the DNS tester.")
+    parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="preferred port (default 8000)")
+    parser.add_argument("--no-open", action="store_true", help="do not try to open the browser")
+    parser.add_argument("--all", action="store_true",
+                        help="bind 0.0.0.0 so other devices on your LAN can open it")
+    parser.add_argument("--background", action="store_true",
+                        help="start hidden (no auto-open, suitable for Termux:Boot)")
+    parser.add_argument("--install-autostart", action="store_true",
+                        help="(Termux) install a Termux:Boot script that starts this console at boot")
+    args = parser.parse_args(argv)
+
+    if args.install_autostart:
+        _web_install_termux_autostart()
+        return
+
+    host = "0.0.0.0" if args.all else args.host
+    port = _web_pick_port(host, args.port)
+    httpd = ThreadingHTTPServer((host, port), WebConsoleHandler)
+
+    shown_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
+    url = f"http://{shown_host}:{port}/"
+
+    print("=" * 62)
+    print("  DNS CONSOLE  -  local web interface")
+    print("=" * 62)
+    print(f"  Serving at : {url}")
+    print(f"  Bound to   : {host}:{port}")
+    if host == "0.0.0.0":
+        print(f"  LAN link   : http://{_web_lan_ip()}:{port}/  (from other devices)")
+    print("  Stop with  : Ctrl+C")
+    print("=" * 62)
+
+    if args.background:
+        args.no_open = True
+
+    if not args.no_open:
+        threading.Timer(0.7, lambda: _web_open_browser(url)).start()
+        print("  Opening your browser automatically...")
+    print("  If nothing opens, copy the link above into your browser.")
+    print()
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n  Shutting down. Bye.")
+    finally:
+        httpd.server_close()
+
+
+def launch_web_console(extra_args=None):
+    """Start the embedded local web console (see web_console_main)."""
+    web_console_main([] if extra_args is None else extra_args)
+
+
+# ============================================================
 #  MAIN MENU
 # ============================================================
 def menu():
@@ -2579,34 +3815,7 @@ def menu():
         elif choice == '4':
             sys.exit(0)
 
-def launch_web_console(extra_args=None):
-    """Import and start web_server.py from the folder holding this script.
-
-    Uses an explicit path so it works even when the current directory differs from
-    the script's directory (common on Termux). If web_server.py is missing, prints
-    a concrete fix instead of a bare ImportError. `extra_args` are forwarded to
-    web_server's argument parser (e.g. --port/--all)."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if script_dir not in sys.path:
-        sys.path.insert(0, script_dir)
-    try:
-        import web_server
-    except ImportError:
-        print(f"\n{ANSI_RED}[X] Could not load web_server.py{ANSI_RESET}")
-        print(f"{ANSI_DIM}    It must sit next to advanced_core.py, in:{ANSI_RESET}")
-        print(f"{ANSI_DIM}    {script_dir}{ANSI_RESET}")
-        print(f"{ANSI_DIM}    Fix:  git pull   (or copy web_server.py + the web/ folder here){ANSI_RESET}")
-        return False
-    try:
-        web_server.main([] if extra_args is None else extra_args)
-    except KeyboardInterrupt:
-        pass
-    return True
-
 if __name__ == '__main__':
-    # Let web_server (imported as a module) reuse THIS instance instead of importing
-    # a second copy with its own caches, so pinned/DNS-list state stays consistent.
-    sys.modules.setdefault('advanced_core', sys.modules['__main__'])
     # `python advanced_core.py --web [--port N] [--all] ...` jumps into the console.
     if '--web' in sys.argv:
         idx = sys.argv.index('--web')
