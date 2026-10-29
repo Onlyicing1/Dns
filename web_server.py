@@ -32,9 +32,15 @@ from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
-sys.path.insert(0, HERE)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
-import advanced_core as core  # noqa: E402  (path setup must come first)
+# Reuse the advanced_core module if the CLI already imported it (avoids a second,
+# independent copy of its caches when launched from the menu). Fall back to a
+# normal import when this file is run directly.
+core = sys.modules.get("advanced_core")
+if core is None:
+    import advanced_core as core  # noqa: E402  (path setup must come first)
 
 # Server-side running history so the UI can show a stability ranking across scans.
 _HISTORY = {}

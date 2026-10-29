@@ -2574,22 +2574,42 @@ def menu():
         elif choice == 'm':
             run_dns_manager()
         elif choice == 'w':
-            try:
-                import web_server
-                web_server.main([])
-            except ImportError:
-                print(f"{ANSI_RED}[X] web_server.py not found next to this script.{ANSI_RESET}")
-                input(f"{ANSI_DIM}Press Enter to continue...{ANSI_RESET}")
+            launch_web_console()
+            input(f"{ANSI_DIM}Press Enter to continue...{ANSI_RESET}")
         elif choice == '4':
             sys.exit(0)
 
+def launch_web_console(extra_args=None):
+    """Import and start web_server.py from the folder holding this script.
+
+    Uses an explicit path so it works even when the current directory differs from
+    the script's directory (common on Termux). If web_server.py is missing, prints
+    a concrete fix instead of a bare ImportError. `extra_args` are forwarded to
+    web_server's argument parser (e.g. --port/--all)."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+    try:
+        import web_server
+    except ImportError:
+        print(f"\n{ANSI_RED}[X] Could not load web_server.py{ANSI_RESET}")
+        print(f"{ANSI_DIM}    It must sit next to advanced_core.py, in:{ANSI_RESET}")
+        print(f"{ANSI_DIM}    {script_dir}{ANSI_RESET}")
+        print(f"{ANSI_DIM}    Fix:  git pull   (or copy web_server.py + the web/ folder here){ANSI_RESET}")
+        return False
+    try:
+        web_server.main([] if extra_args is None else extra_args)
+    except KeyboardInterrupt:
+        pass
+    return True
+
 if __name__ == '__main__':
-    # `python advanced_core.py --web` jumps straight into the browser console.
+    # Let web_server (imported as a module) reuse THIS instance instead of importing
+    # a second copy with its own caches, so pinned/DNS-list state stays consistent.
+    sys.modules.setdefault('advanced_core', sys.modules['__main__'])
+    # `python advanced_core.py --web [--port N] [--all] ...` jumps into the console.
     if '--web' in sys.argv:
-        try:
-            import web_server
-            web_server.main([])
-        except ImportError:
-            print("web_server.py not found next to this script.")
+        idx = sys.argv.index('--web')
+        launch_web_console(sys.argv[idx + 1:])
     else:
         menu()
