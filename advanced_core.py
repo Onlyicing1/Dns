@@ -2951,6 +2951,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     <div class="topbar-right">
       <div class="clock" id="clock">--:--:--</div>
       <div class="status" id="conn-text">connecting…</div>
+      <div class="status host" id="footer-port">—</div>
     </div>
   </header>
 
@@ -2980,106 +2981,6 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <span id="drawer-port">—</span>
     </div>
   </aside>
-
-  <!-- ---------- HERO / MASCOT ---------- -->
-  <section class="hero" id="hero">
-    <button class="hero-toggle" id="hero-toggle" aria-label="collapse banner" aria-expanded="true">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
-    <div class="hero-mascot">
-      <!-- chibi console-operator mascot (inline SVG, offline-safe) -->
-      <svg viewBox="0 0 240 240" class="mascot" role="img" aria-label="console mascot">
-        <defs>
-          <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#ff7ad9"/><stop offset="0.55" stop-color="#ff5ea8"/>
-            <stop offset="1" stop-color="#a24bff"/>
-          </linearGradient>
-          <linearGradient id="hair2" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#ff9fe0"/><stop offset="1" stop-color="#c05bff"/>
-          </linearGradient>
-          <linearGradient id="iris" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#8bfff6"/><stop offset="0.6" stop-color="#22c8ff"/>
-            <stop offset="1" stop-color="#3b6bff"/>
-          </linearGradient>
-          <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#ffe6d6"/><stop offset="1" stop-color="#ffd0ba"/>
-          </linearGradient>
-          <linearGradient id="cup" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#2a2340"/><stop offset="1" stop-color="#161129"/>
-          </linearGradient>
-          <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
-            <stop offset="0" stop-color="rgba(255,122,217,0.55)"/>
-            <stop offset="1" stop-color="rgba(255,122,217,0)"/>
-          </radialGradient>
-        </defs>
-
-        <ellipse cx="120" cy="120" rx="112" ry="112" fill="url(#halo)"/>
-
-        <!-- twin tails (back) -->
-        <path d="M62 96 C34 108 30 168 58 196 C74 210 92 204 88 184 C78 148 84 118 92 104 Z" fill="url(#hair)"/>
-        <path d="M178 96 C206 108 210 168 182 196 C166 210 148 204 152 184 C162 148 156 118 148 104 Z" fill="url(#hair)"/>
-
-        <!-- back hair -->
-        <path d="M120 42 C74 42 54 80 58 128 C60 156 74 176 96 182 L144 182 C166 176 180 156 182 128 C186 80 166 42 120 42 Z" fill="url(#hair2)"/>
-
-        <!-- face -->
-        <ellipse cx="120" cy="128" rx="52" ry="56" fill="url(#skin)"/>
-
-        <!-- ears -->
-        <ellipse cx="70" cy="132" rx="9" ry="13" fill="url(#skin)"/>
-        <ellipse cx="170" cy="132" rx="9" ry="13" fill="url(#skin)"/>
-
-        <!-- bangs -->
-        <path d="M120 44 C80 44 60 74 62 112 C70 96 78 88 86 86 C92 104 100 112 108 112 C106 96 110 84 120 78 C130 84 134 96 132 112 C140 112 148 104 154 86 C162 88 170 96 178 112 C180 74 160 44 120 44 Z" fill="url(#hair)"/>
-
-        <!-- eyes -->
-        <ellipse cx="98" cy="132" rx="17" ry="20" fill="#fff"/>
-        <ellipse cx="142" cy="132" rx="17" ry="20" fill="#fff"/>
-        <ellipse cx="99" cy="134" rx="12" ry="15" fill="url(#iris)"/>
-        <ellipse cx="141" cy="134" rx="12" ry="15" fill="url(#iris)"/>
-        <circle cx="99" cy="134" r="6" fill="#0c1030"/>
-        <circle cx="141" cy="134" r="6" fill="#0c1030"/>
-        <circle cx="95" cy="127" r="4.5" fill="#fff"/>
-        <circle cx="137" cy="127" r="4.5" fill="#fff"/>
-        <circle cx="103" cy="140" r="2" fill="#fff" opacity="0.85"/>
-        <circle cx="145" cy="140" r="2" fill="#fff" opacity="0.85"/>
-        <!-- lashes -->
-        <path d="M80 120 C88 110 108 108 116 116" stroke="#3a2140" stroke-width="4" fill="none" stroke-linecap="round"/>
-        <path d="M160 120 C152 110 132 108 124 116" stroke="#3a2140" stroke-width="4" fill="none" stroke-linecap="round"/>
-
-        <!-- blush -->
-        <ellipse cx="86" cy="150" rx="10" ry="6" fill="#ff8fb4" opacity="0.55"/>
-        <ellipse cx="154" cy="150" rx="10" ry="6" fill="#ff8fb4" opacity="0.55"/>
-
-        <!-- mouth -->
-        <path d="M114 158 C118 164 124 164 128 158" stroke="#c04a63" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-
-        <!-- headset -->
-        <path d="M58 118 C58 70 92 44 120 44 C148 44 182 70 182 118" stroke="#1b1730" stroke-width="10" fill="none" stroke-linecap="round"/>
-        <rect x="46" y="112" width="26" height="42" rx="13" fill="url(#cup)" stroke="#7afcff" stroke-width="2.5"/>
-        <rect x="168" y="112" width="26" height="42" rx="13" fill="url(#cup)" stroke="#ff7ad9" stroke-width="2.5"/>
-        <circle cx="59" cy="133" r="5" fill="#7afcff"/>
-        <circle cx="181" cy="133" r="5" fill="#ff7ad9"/>
-        <!-- mic -->
-        <path d="M70 150 C78 176 96 186 110 188" stroke="#1b1730" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <ellipse cx="113" cy="189" rx="7" ry="5" fill="#2a2340" stroke="#7afcff" stroke-width="2"/>
-
-        <!-- hair highlight -->
-        <path d="M92 66 C104 58 122 58 134 66" stroke="#ffd6f4" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.7"/>
-      </svg>
-      <span class="mascot-name">Yui · ops</span>
-    </div>
-    <div class="hero-copy">
-      <h2>DNS command deck</h2>
-      <p>Bulk-scan thousands of resolvers in parallel, keep your list and history across sessions, and run every CLI tool — VPN IP, APNs, diagnosis, telemetry — right here.</p>
-      <div class="hero-chips">
-        <span class="hchip hc1">chunked parallel scan</span>
-        <span class="hchip hc2">persistent history</span>
-        <span class="hchip hc3">VPN / APN tools</span>
-        <span class="hchip hc4">offline · stdlib</span>
-      </div>
-    </div>
-  </section>
 
   <!-- ---------- DOCK TOOLBAR ---------- -->
   <div class="dock-bar" id="dock-bar">
@@ -3514,15 +3415,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <footer class="footer">
-    <span>NEXUS DNS</span><span class="dot">•</span>
-    <span>stdlib server, no deps</span><span class="dot">•</span>
-    <span id="footer-port">—</span>
-  </footer>
+
 
   <script src="/app.js"></script>
 </body>
-</html>
 """
 _WEB_APP_CSS = r"""/* ============================================================
    NEXUS DNS — vibrant command-deck theme
@@ -3555,7 +3451,7 @@ _WEB_APP_CSS = r"""/* ==========================================================
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { min-height: 100%; }
+html, body { height: 100%; }
 
 body {
   background: radial-gradient(1400px 900px at 8% -12%, rgba(120, 90, 255, 0.20), transparent 60%),
@@ -3566,7 +3462,8 @@ body {
   font-family: var(--display);
   font-size: 14.5px;
   line-height: 1.5;
-  overflow-x: hidden;
+  overflow: hidden;
+  display: flex; flex-direction: column;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -3611,7 +3508,7 @@ body {
 
 /* ---- topbar ---- */
 .topbar {
-  position: sticky; top: 0; z-index: 40;
+  position: sticky; top: 0; z-index: 40; flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 15px 26px;
   border-bottom: 1px solid var(--line);
@@ -3640,94 +3537,6 @@ body {
 .topbar-right { display: flex; align-items: center; gap: 18px; }
 .clock { font-family: var(--mono); font-size: 15px; color: var(--cyan); letter-spacing: 1px; }
 .status { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-
-/* ---- hero ---- */
-.hero {
-  display: flex; align-items: center; gap: 26px;
-  max-width: 1500px; margin: 22px auto 6px; padding: 20px 26px;
-  border: 1px solid var(--line); border-radius: var(--radius);
-  background: linear-gradient(120deg, rgba(53,230,255,0.08), rgba(166,120,255,0.08) 45%, rgba(255,110,199,0.08));
-  position: relative; overflow: hidden;
-}
-.hero::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(500px 200px at 12% 120%, rgba(255,110,199,0.16), transparent 70%);
-}
-.hero-mascot { position: relative; flex: 0 0 auto; width: 168px; text-align: center; }
-.mascot { width: 168px; height: 168px; filter: drop-shadow(0 10px 26px rgba(255,110,199,0.35)); animation: bob 5s ease-in-out infinite; }
-@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
-.mascot-name {
-  display: inline-block; margin-top: 4px; font-family: var(--mono); font-size: 11px;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--pink);
-}
-.hero-copy { position: relative; z-index: 1; }
-.hero-copy h2 {
-  font-family: var(--display); font-weight: 800; font-size: 30px; letter-spacing: 1px;
-  background: linear-gradient(90deg, #fff, var(--cyan) 60%, var(--violet));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.hero-copy p { color: var(--dim); max-width: 720px; margin-top: 6px; font-size: 14.5px; }
-.hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.hchip {
-  font-size: 11px; letter-spacing: 1px; padding: 5px 11px; border-radius: 999px;
-  border: 1px solid var(--line-strong); color: var(--ink); background: rgba(255,255,255,0.03);
-}
-.hc1 { border-color: rgba(53,230,255,0.5);  color: var(--cyan); }
-.hc2 { border-color: rgba(70,245,160,0.5);  color: var(--green); }
-.hc3 { border-color: rgba(255,110,199,0.5); color: var(--pink); }
-.hc4 { border-color: rgba(255,194,75,0.5);  color: var(--amber); }
-
-/* ---- layout ---- */
-.grid {
-  display: grid; gap: 16px; padding: 18px 26px 70px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 1500px; margin: 0 auto;
-}
-.span-2 { grid-column: span 2; }
-
-.panel {
-  position: relative; background: var(--panel);
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 18px 20px 20px; backdrop-filter: blur(9px);
-  box-shadow: 0 18px 50px -30px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04);
-  opacity: 0; transform: translateY(16px);
-  animation: reveal 0.6s cubic-bezier(.2,.7,.2,1) forwards;
-}
-#panel-scanner { animation-delay: .04s; }
-#panel-stability { animation-delay: .10s; }
-#panel-list { animation-delay: .16s; }
-#panel-tools { animation-delay: .22s; }
-#panel-network { animation-delay: .28s; }
-#panel-device { animation-delay: .34s; }
-#panel-apn { animation-delay: .40s; }
-#panel-profiles { animation-delay: .46s; }
-#panel-diagnosis { animation-delay: .52s; }
-@keyframes reveal { to { opacity: 1; transform: translateY(0); } }
-
-.panel::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: var(--radius) var(--radius) 0 0; opacity: 0.9; }
-.accent-cyan::before   { background: linear-gradient(90deg, transparent, var(--cyan), transparent); }
-.accent-green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
-.accent-amber::before  { background: linear-gradient(90deg, transparent, var(--amber), transparent); }
-.accent-pink::before   { background: linear-gradient(90deg, transparent, var(--pink), transparent); }
-.accent-violet::before { background: linear-gradient(90deg, transparent, var(--violet), transparent); }
-.accent-blue::before   { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
-
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.panel-head h2 {
-  font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: 1px;
-  display: flex; align-items: center; gap: 10px;
-}
-.panel-head .idx {
-  font-family: var(--mono); font-size: 11px; color: var(--cyan);
-  border: 1px solid var(--line-strong); padding: 2px 7px; border-radius: 6px;
-  background: rgba(53,230,255,0.08);
-}
-.badge {
-  font-family: var(--mono); font-size: 11px; color: #08131a; background: var(--green);
-  border-radius: 999px; padding: 1px 9px; font-weight: 700;
-}
-.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.hint { color: var(--dim); font-size: 12px; margin-bottom: 12px; }
 
 /* ---- controls ---- */
 textarea, input[type="text"], input[type="number"], select {
@@ -3934,29 +3743,6 @@ table.results tr:hover td { background: rgba(150,130,255,0.08); }
 .field.wide-field { width: auto; flex: 1 1 240px; }
 .field.wide-field input { text-align: left; }
 .ai-badge { background: linear-gradient(90deg, var(--pink), var(--violet)); color: #fff; }
-
-/* ---- footer ---- */
-.footer {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
-  display: flex; gap: 10px; align-items: center; justify-content: center; padding: 8px;
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase;
-  color: var(--dim); background: linear-gradient(0deg, rgba(8,6,15,0.95), transparent); pointer-events: none;
-}
-.footer .dot { color: var(--pink); }
-
-/* ---- responsive ---- */
-@media (max-width: 900px) {
-  .grid { grid-template-columns: 1fr; padding: 14px 14px 70px; }
-  .span-2 { grid-column: span 1; }
-  .metrics { grid-template-columns: repeat(2, 1fr); }
-  .hero { flex-direction: column; text-align: center; padding: 18px 16px; }
-  .hero-chips { justify-content: center; }
-  .hero-copy h2 { font-size: 24px; }
-  .topbar { padding: 12px 16px; }
-  .brand h1 { font-size: 17px; }
-  .apn-wrap { grid-template-columns: 1fr; }
-  .device-grid { grid-template-columns: 1fr; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
@@ -4166,63 +3952,112 @@ select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 
 .tool-out .dim { color: var(--dim); }
 
 /* ============================================================
-   COLLAPSIBLE DOCK PANELS (round 10)
-   Every section is a self-contained card whose header toggles the
-   body open/closed, so the user sees and controls everything in one
-   place without a long scrolling page. Any card can be popped into a
-   full-screen "focus" overlay.
+   DASHBOARD DECK (round 10b) — every panel visible, no scrolling
+   The whole UI fits the viewport as a fixed 3-row grid. Each row
+   divides its height between the panels in it; every panel is a
+   small window with a header (open/close) and an internal scroll.
    ============================================================ */
-.panel { display: flex; flex-direction: column; }
+:root { --deck-rows: 3; }
 
-/* the header is the click target that opens/closes the card */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--deck-rows), minmax(0, 1fr));
+  gap: 12px;
+  padding: 10px 16px;
+  width: 100%; max-width: 1760px; margin: 0 auto;
+  flex: 1 1 auto; min-height: 0;
+  overflow: hidden;
+}
+/* spans chosen so each of the 3 rows sums to 12 columns */
+.g2 { grid-column: span 2; }
+.g3 { grid-column: span 3; }
+.g4 { grid-column: span 4; }
+
+.panel {
+  position: relative; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; backdrop-filter: blur(9px);
+  box-shadow: 0 18px 50px -30px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+
+.panel::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: var(--radius) var(--radius) 0 0; opacity: 0.9; }
+.accent-cyan::before   { background: linear-gradient(90deg, transparent, var(--cyan), transparent); }
+.accent-green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+.accent-amber::before  { background: linear-gradient(90deg, transparent, var(--amber), transparent); }
+.accent-pink::before   { background: linear-gradient(90deg, transparent, var(--pink), transparent); }
+.accent-violet::before { background: linear-gradient(90deg, transparent, var(--violet), transparent); }
+.accent-blue::before   { background: linear-gradient(90deg, transparent, var(--blue), transparent); }
+
+/* header is the click target that opens/closes the panel */
 .panel-head {
-  margin-bottom: 0; cursor: pointer; user-select: none;
-  border-radius: 10px; padding: 4px 2px;
-  transition: background .15s;
+  display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  cursor: pointer; user-select: none; border-radius: 10px; padding: 2px;
+  transition: background .15s; flex: 0 0 auto;
 }
 .panel-head:hover { background: rgba(255,255,255,0.035); }
-.panel-head h2 { flex: 1; min-width: 0; }
-.panel-head .head-actions { cursor: default; }
+.panel-head h2 {
+  font-family: var(--display); font-weight: 700; font-size: 14px; letter-spacing: .5px;
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.panel-head .idx {
+  font-family: var(--mono); font-size: 10px; color: var(--cyan);
+  border: 1px solid var(--line-strong); padding: 1px 6px; border-radius: 6px;
+  background: rgba(53,230,255,0.08); flex: 0 0 auto;
+}
+.badge {
+  font-family: var(--mono); font-size: 10px; color: #08131a; background: var(--green);
+  border-radius: 999px; padding: 1px 8px; font-weight: 700;
+}
+.head-actions { display: flex; gap: 6px; flex-wrap: wrap; cursor: default; flex: 0 0 auto; }
+.hint { color: var(--dim); font-size: 11.5px; margin-bottom: 8px; flex: 0 0 auto; }
 
-/* collapse chevron + focus button live in a small control cluster */
 .head-tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .ico-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--dim);
   transition: color .15s, border-color .15s, background .15s, transform .18s;
 }
 .ico-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
-.ico-btn svg { width: 15px; height: 15px; }
+.ico-btn svg { width: 14px; height: 14px; }
 .chev { transition: transform .22s ease; }
 .panel.collapsed .chev { transform: rotate(-90deg); }
 
-/* the body collapses smoothly via grid rows (grows to content height) */
+/* the body is the panel's scroll window */
 .panel-body {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows .3s cubic-bezier(.2,.8,.2,1), opacity .22s ease, margin-top .22s ease;
-  opacity: 1; margin-top: 14px;
+  transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+  opacity: 1;
 }
-.panel-body > .panel-body-inner { overflow: hidden; min-height: 0; }
-.panel.collapsed .panel-body { grid-template-rows: 0fr; opacity: 0; margin-top: 0; }
-.panel.collapsed { padding-bottom: 16px; }
+.panel-body > .panel-body-inner { overflow: auto; min-height: 0; padding-right: 4px; }
+.panel.collapsed .panel-body { grid-template-rows: 0fr; opacity: 0; }
+.panel.collapsed { flex: 0 0 auto; }
+.panel.collapsed .panel-head { margin-bottom: 0; }
 
-/* a slim summary line shows when collapsed */
-.panel-sub {
-  display: none; color: var(--dim); font-size: 12px; margin-top: 2px;
-  font-family: var(--mono);
+/* the collapsed card fills its cell as a big clickable tile */
+.panel.collapsed::after {
+  content: "click to open";
+  margin: auto; font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim-2);
 }
-.panel.collapsed .panel-sub { display: block; }
+
+/* keep wide panels usable in a narrow cell */
+.panel-body-inner > .table-wrap { max-height: none; }
 
 /* ---- dock toolbar ---- */
 .dock-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  max-width: 1500px; margin: 18px auto 0; padding: 8px 26px;
+  max-width: 1760px; margin: 0 auto; padding: 6px 16px; width: 100%;
+  flex: 0 0 auto; box-sizing: border-box;
 }
-.dock-left { display: flex; align-items: baseline; gap: 10px; }
+.dock-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .dock-title {
-  font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: .18em;
-  text-transform: uppercase; color: var(--dim);
+  font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--dim); white-space: nowrap;
 }
 .dock-count { font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
 .dock-actions { display: flex; gap: 8px; }
@@ -4230,29 +4065,9 @@ select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 
   font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
   color: var(--dim); background: rgba(255,255,255,0.03);
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s;
+  transition: color .15s, border-color .15s, background .15s; white-space: nowrap;
 }
 .dock-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.07); }
-
-/* ---- hero collapse ---- */
-.hero { position: relative; }
-.hero-toggle {
-  position: absolute; top: 12px; right: 14px; z-index: 2;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
-  border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--dim);
-  transition: color .15s, transform .2s, border-color .15s;
-}
-.hero-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
-.hero-toggle svg { transition: transform .25s ease; }
-.hero.collapsed .hero-toggle svg { transform: rotate(180deg); }
-.hero-inner { display: flex; align-items: center; gap: 26px; width: 100%; }
-.hero.collapsed .hero-inner { display: none; }
-.hero.collapsed { padding: 14px 26px; }
-.hero.collapsed::before {
-  content: "NEXUS DNS · command deck"; font-family: var(--display); font-weight: 700;
-  font-size: 13px; letter-spacing: 1px; color: var(--dim);
-}
 
 /* ---- focus overlay (one panel, full screen) ---- */
 .focus-backdrop {
@@ -4265,11 +4080,12 @@ select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 
   padding: 22px;
 }
 .focus-frame {
-  position: relative; width: min(1100px, 96vw); max-height: 92vh; overflow: auto;
+  position: relative; width: min(1200px, 96vw); height: min(900px, 92vh); overflow: hidden;
+  display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(20,16,38,0.99), rgba(11,8,24,0.99));
   box-shadow: 0 40px 120px -30px rgba(0,0,0,0.9);
-  padding: 4px;
+  padding: 12px;
   animation: focusIn .24s cubic-bezier(.2,.8,.2,1);
 }
 @keyframes focusIn { from { transform: translateY(14px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -4279,15 +4095,33 @@ select.sel[multiple] option:checked { background: color-mix(in srgb, var(--acc) 
   border: 1px solid var(--line); background: rgba(10,8,20,0.8); color: var(--dim); font-size: 15px;
 }
 .focus-close:hover { color: var(--ink); border-color: var(--line-strong); }
-.focus-slot > .panel { animation: none; opacity: 1; transform: none; border: none; background: transparent; box-shadow: none; }
-.focus-slot > .panel::before { display: none; }
+.focus-slot { flex: 1 1 auto; min-height: 0; display: flex; }
+.focus-slot > .panel {
+  flex: 1 1 auto; animation: none; opacity: 1; transform: none;
+  border: none; background: transparent; box-shadow: none; padding: 4px;
+}
+.focus-slot > .panel::before, .focus-slot > .panel::after { display: none; }
 .focus-slot .panel-head { cursor: default; }
-.focus-slot .panel.collapsed .panel-body { grid-template-rows: 1fr; opacity: 1; margin-top: 14px; }
+.focus-slot .panel.collapsed .panel-body { grid-template-rows: 1fr; opacity: 1; }
 
-@media (max-width: 900px) {
-  .dock-bar { padding: 8px 16px; flex-wrap: wrap; gap: 8px; }
-  .focus-host { padding: 10px; }
-  .focus-frame { max-height: 96vh; }
+/* ---- responsive: stack cells and let the page scroll on small screens ---- */
+@media (max-width: 1120px) {
+  body { overflow: auto; }
+  .grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-rows: minmax(210px, auto);
+    height: auto; overflow: visible;
+  }
+  .g2, .g3 { grid-column: span 6; }
+  .g4 { grid-column: span 12; }
+  .panel { min-height: 220px; }
+}
+@media (max-width: 760px) {
+  .grid { grid-template-columns: 1fr; padding: 10px; }
+  .g2, .g3, .g4 { grid-column: span 1; }
+  .dock-bar { padding: 6px 12px; }
+  .focus-host { padding: 8px; }
+  .focus-frame { width: 100%; height: 96vh; }
 }
 """
 _WEB_APP_JS = r"""/* ============================================================
@@ -4354,11 +4188,30 @@ _WEB_APP_JS = r"""/* ===========================================================
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
   /* ============================================================
-     COLLAPSIBLE DOCK — every section is an open/close card
+     DASHBOARD DECK — every panel visible, fixed 3-row grid
      ============================================================ */
   const PANEL_KEY = "nexus_panel_state";
-  const HERO_KEY = "nexus_hero_collapsed";
   const dockPanels = [...document.querySelectorAll("main .panel")];
+
+  // Spans over a 12-column grid, packed into exactly 3 rows:
+  //   row 1: import(4) scanner(4) autotest(4)
+  //   row 2: stability(2) list(2) tools(2) network(2) device(4)
+  //   row 3: apn(2) profiles(2) diagnosis(2) ai(3) appearance(3)
+  const SPANS = {
+    "panel-import": 4,
+    "panel-scanner": 4,
+    "panel-autotest": 4,
+    "panel-stability": 2,
+    "panel-list": 2,
+    "panel-tools": 2,
+    "panel-network": 2,
+    "panel-device": 4,
+    "panel-apn": 2,
+    "panel-profiles": 2,
+    "panel-diagnosis": 2,
+    "panel-ai": 3,
+    "panel-appearance": 3,
+  };
 
   const CHEV = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const EXPAND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -4372,10 +4225,13 @@ _WEB_APP_JS = r"""/* ===========================================================
     try { localStorage.setItem(PANEL_KEY, JSON.stringify(st)); } catch {}
   }
 
-  // Restructure each card: wrap its body, then add focus + collapse controls.
+  // Restructure each card: span it, wrap its body, add focus + collapse controls.
   dockPanels.forEach((panel) => {
     const head = panel.querySelector(".panel-head");
     if (!head) return;
+
+    const span = SPANS[panel.id];
+    if (span) panel.classList.add("g" + span);
 
     const body = el("div", "panel-body");
     const bodyInner = el("div", "panel-body-inner");
@@ -4383,11 +4239,6 @@ _WEB_APP_JS = r"""/* ===========================================================
     while (n) { const next = n.nextSibling; bodyInner.appendChild(n); n = next; }
     body.appendChild(bodyInner);
     panel.appendChild(body);
-
-    const sub = el("div", "panel-sub");
-    const hint = panel.querySelector(".hint");
-    sub.textContent = hint ? hint.textContent.trim() : "";
-    panel.appendChild(sub);
 
     const tools = el("div", "head-tools");
     const focusBtn = el("button", "ico-btn focus-btn");
@@ -4404,10 +4255,15 @@ _WEB_APP_JS = r"""/* ===========================================================
 
     tools.append(focusBtn, chevBtn);
     head.appendChild(tools);
+  });
 
-    head.addEventListener("click", (e) => {
+  // Click behaviour: the header toggles open/closed; a collapsed card is a big
+  // tile, so clicking anywhere on it opens it. Action buttons are left alone.
+  dockPanels.forEach((panel) => {
+    panel.addEventListener("click", (e) => {
       if (e.target.closest(".head-actions") || e.target.closest(".head-tools")) return;
-      togglePanel(panel);
+      if (e.target.closest(".panel-head")) { togglePanel(panel); return; }
+      if (panel.classList.contains("collapsed")) togglePanel(panel, false);
     });
   });
 
@@ -4437,12 +4293,12 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (c) c.textContent = `${open} / ${dockPanels.length} open`;
   }
 
-  // Restore the saved layout; on first run keep only the scanner open so the
-  // deck starts minimal and the user opens what they need.
+  // Everything is on screen at once, so panels default to OPEN. A saved
+  // layout (from a previous visit) is respected.
   (function restorePanelState() {
     const st = readPanelState();
     dockPanels.forEach((p) => {
-      const collapsed = st && p.id in st ? !st[p.id] : p.id !== "panel-scanner";
+      const collapsed = st && p.id in st ? !st[p.id] : false;
       p.classList.toggle("collapsed", collapsed);
       const head = p.querySelector(".panel-head");
       if (head) head.setAttribute("aria-expanded", String(!collapsed));
@@ -4493,21 +4349,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   focusBackdrop.addEventListener("click", closeFocus);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeFocus(); });
 
-  /* ---- collapsible hero banner ---- */
-  const hero = $("hero");
-  const heroInner = el("div", "hero-inner");
-  [...hero.children].forEach((c) => {
-    if (!c.classList.contains("hero-toggle")) heroInner.appendChild(c);
-  });
-  hero.appendChild(heroInner);
-  try { hero.classList.toggle("collapsed", localStorage.getItem(HERO_KEY) === "1"); } catch {}
-  $("hero-toggle").addEventListener("click", () => {
-    const collapsed = hero.classList.toggle("collapsed");
-    $("hero-toggle").setAttribute("aria-expanded", String(!collapsed));
-    try { localStorage.setItem(HERO_KEY, collapsed ? "1" : "0"); } catch {}
-  });
-
-  /* ---- nav drawer: jump to a section and open it ---- */
+  /* ---- nav drawer: open the section (everything is already on screen) ---- */
   const navLinks = [...document.querySelectorAll("#drawer-nav a")];
   navLinks.forEach((a) => a.addEventListener("click", (e) => {
     e.preventDefault();
@@ -4516,7 +4358,6 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (!target) return;
     if (focusedPanel && focusedPanel !== target) closeFocus();
     togglePanel(target, false);
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
     target.classList.remove("flash");
     void target.offsetWidth;
     target.classList.add("flash");
@@ -5257,7 +5098,9 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("import-scan").addEventListener("click", () => {
     if (!imported.length) { importOut.textContent = "import something first."; return; }
     targetsBox.value = imported.join("\n");
-    document.getElementById("panel-scanner").scrollIntoView({ behavior: "smooth" });
+    const sc = document.getElementById("panel-scanner");
+    togglePanel(sc, false);
+    sc.classList.remove("flash"); void sc.offsetWidth; sc.classList.add("flash");
     runScan();
   });
 

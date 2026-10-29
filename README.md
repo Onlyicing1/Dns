@@ -62,15 +62,17 @@ will come up on your LAN automatically.
   show alive-only, and **export CSV** (includes country/ASN). After a scan the
   panel also suggests **recommended pairs** — a fastest pair and a
   best-diversity pair from different countries.
-- **Collapsible deck, not a long scroll** — every section is a card that opens and
-  closes independently, so you can see and control everything in one place. Click
-  a card header (or its chevron) to expand/collapse it; the layout is remembered
-  in your browser. **expand all / collapse all** live in the dock bar at the top,
-  and the **⤢** button on any card pops it into a full-screen **focus** overlay
-  (Esc or ✕ to close). The hero banner collapses too.
+- **Fixed 3-row deck, no page scroll** — all thirteen sections sit side by side
+  in a dashboard that fills the screen in at most **three rows**, so nothing is
+  off-screen and the page never scrolls. Each card is a tile that opens and
+  closes in place: click its header (or the chevron, or anywhere on a collapsed
+  tile) to expand/collapse it, and the state is remembered in your browser.
+  **expand all / collapse all** live in the dock bar at the top, and the **⤢**
+  button on any card pops it into a full-screen **focus** overlay (Esc or ✕ to
+  close). Tall content scrolls *inside* its own card, so the page itself stays put.
 - **Navigation** — a hamburger menu (top-left) opens a side drawer listing every
-  section; tapping a section scrolls to it and opens it, and the current section
-  is highlighted as you move.
+  section; tapping a section opens and flashes it (everything is already on
+  screen, so there is nothing to scroll to).
 - **Auto-Test** — a timer that re-runs the scan on an interval, forever (or for a
   fixed number of cycles). Fully customizable: interval, protocol, packets,
   workers, target source (scanner box or saved list), **probe target**, and
