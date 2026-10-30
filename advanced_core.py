@@ -16,13 +16,164 @@ try:
 except Exception:
     pass
 
-# ---- NEW: Structured logging setup ----
+# ---- Structured logging setup -------------------------------------------
+# Everything the engine does is recorded twice: to stdout (Termux/ADB) and to an
+# in-memory ring buffer that the in-app Logs tab reads. The buffer is what makes
+# a phone-only failure diagnosable without a USB cable.
+_LOG_LOCK = threading.Lock()
+_LOG_BUFFER = []                 # [{seq, t, ts, level, name, msg}, ...]
+_LOG_SEQ = 0
+_LOG_MAX = 4000                  # keep the newest N lines
+_LOG_MIN_LEVEL = "DEBUG"         # capture everything by default
+_PROC_START = time.time()
+
+
+def _log_add(level, name, msg):
+    """Append one line to the in-memory log ring buffer (thread-safe)."""
+    global _LOG_SEQ
+    line = msg.rstrip("\n")
+    if not line:
+        return
+    with _LOG_LOCK:
+        _LOG_SEQ += 1
+        _LOG_BUFFER.append({
+            "seq": _LOG_SEQ,
+            "t": time.strftime("%H:%M:%S"),
+            "ts": round(time.time(), 3),
+            "level": level,
+            "name": name,
+            "msg": line,
+        })
+        if len(_LOG_BUFFER) > _LOG_MAX:
+            del _LOG_BUFFER[:len(_LOG_BUFFER) - _LOG_MAX]
+
+
+def _log_lines(since=0, limit=0, level=""):
+    """Snapshot the ring buffer; `since` returns only newer lines."""
+    with _LOG_LOCK:
+        out = [dict(e) for e in _LOG_BUFFER if e["seq"] > since]
+    if level:
+        want = level.upper()
+        out = [e for e in out if e["level"] == want]
+    if limit and len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
+def _log_clear():
+    with _LOG_LOCK:
+        _LOG_BUFFER.clear()
+
+
+class _RingHandler(logging.Handler):
+    """Mirrors every logging record into the in-app ring buffer."""
+
+    def emit(self, record):
+        try:
+            _log_add(record.levelname, record.name, record.getMessage())
+        except Exception:
+            pass
+
+
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("advanced_core")
+
+# Attach the ring handler to the root logger so third-party and library records
+# (urllib, asyncio, socketserver) land in the Logs tab too.
+_ring_handler = _RingHandler()
+_ring_handler.setLevel(logging.DEBUG)
+_ring_handler.setFormatter(logging.Formatter('%(message)s'))
+logging.getLogger().addHandler(_ring_handler)
+
+
+def log_event(msg, level="info"):
+    """Log a line to stdout AND the in-app Logs tab. Use for lifecycle events."""
+    logger.log(getattr(logging, level.upper(), logging.INFO), msg)
+
+
+_WATCHDOG_STARTED = False
+
+
+def _rss_kb():
+    """Resident memory in KB, via /proc (Linux/Android) or resource as fallback."""
+    try:
+        with open("/proc/self/status", encoding="utf-8") as fh:
+            for ln in fh:
+                if ln.startswith("VmRSS:"):
+                    return int(ln.split()[1])
+    except Exception:
+        pass
+    try:
+        import resource
+        return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except Exception:
+        return 0
+
+
+def _start_watchdog(period=30.0):
+    """Log memory, thread count and load every `period` seconds.
+
+    Rising memory or a growing thread count is a common cause of an Android ANR,
+    and neither shows up anywhere else in the log, so it is sampled here. Runs as
+    a daemon thread and never raises."""
+    global _WATCHDOG_STARTED
+    if _WATCHDOG_STARTED:
+        return
+    _WATCHDOG_STARTED = True
+
+    def _loop():
+        peak = 0
+        while True:
+            try:
+                time.sleep(period)
+                rss = _rss_kb()
+                peak = max(peak, rss)
+                threads = threading.active_count()
+                try:
+                    load = os.getloadavg()[0]
+                except Exception:
+                    load = -1.0
+                # Flag a possible leak rather than just reporting numbers.
+                warn = ""
+                if rss and peak and rss > peak * 1.5 and rss > 200000:
+                    warn = "  <-- memory climbing"
+                _log_add("INFO", "watchdog",
+                         f"rss={rss // 1024}MB peak={peak // 1024}MB "
+                         f"threads={threads} load={load:.2f} "
+                         f"uptime={int(time.time() - _PROC_START)}s{warn}")
+            except Exception:
+                pass
+
+    threading.Thread(target=_loop, daemon=True, name="dns-watchdog").start()
+
+
+def _install_exception_hooks():
+    """Record uncaught exceptions from any thread into the Logs tab.
+
+    A background scan thread that dies silently is exactly the kind of failure
+    that is invisible without a log, so both the main and worker hooks capture
+    the full traceback."""
+    def _hook(exc_type, exc_value, exc_tb):
+        import traceback as _tb
+        text = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
+        _log_add("CRITICAL", "uncaught", text)
+
+    def _thread_hook(args):
+        import traceback as _tb
+        text = "".join(_tb.format_exception(args.exc_type, args.exc_value,
+                                            args.exc_traceback))
+        _log_add("CRITICAL", f"thread:{getattr(args.thread, 'name', '?')}",
+                 "uncaught exception in thread\n" + text)
+
+    sys.excepthook = _hook
+    try:
+        threading.excepthook = _thread_hook
+    except Exception:
+        pass
 
 # ---- NEW: Input validation utilities ----
 def validate_dns_address(address: str) -> bool:
@@ -223,12 +374,15 @@ def safe_run_shizuku_cmd(cmd: str) -> str:
     import subprocess
     if not cmd or not isinstance(cmd, str):
         return ""
-    
+
     # Split command safely (no shell injection)
     parts = cmd.split()
     if not parts:
         return ""
-    
+
+    # Shizuku spawns a subprocess with a 5s timeout; on Android that is a common
+    # place for a stall, so the duration is logged.
+    _t0 = time.perf_counter()
     try:
         # Try rish first (Shizuku's preferred method)
         result = subprocess.run(
@@ -239,10 +393,13 @@ def safe_run_shizuku_cmd(cmd: str) -> str:
             check=False
         )
         if result.returncode == 0:
+            log_event(f"shizuku 'rish' ok in "
+                      f"{round((time.perf_counter() - _t0) * 1000)}ms: {cmd[:60]}",
+                      "debug")
             return result.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    
+        log_event(f"shizuku 'rish' unavailable for: {cmd[:60]}", "debug")
+
     try:
         # Fallback: direct execution (no shell)
         result = subprocess.run(
@@ -252,6 +409,8 @@ def safe_run_shizuku_cmd(cmd: str) -> str:
             timeout=5,
             check=False
         )
+        log_event(f"shizuku direct ok in "
+                  f"{round((time.perf_counter() - _t0) * 1000)}ms: {cmd[:60]}", "debug")
         return result.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
@@ -3524,6 +3683,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <a data-target="panel-appearance" href="#panel-appearance"><span class="di">12</span> Appearance</a>
       <a data-target="panel-route"      href="#panel-route"><span class="di">13</span> Route · Path</a>
       <a data-target="panel-signal"     href="#panel-signal"><span class="di">14</span> Signal · Radio</a>
+      <a data-target="panel-logs"       href="#panel-logs"><span class="di">15</span> Logs</a>
     </nav>
   </aside>
 
@@ -4020,6 +4180,33 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <div class="dev-cell"><span class="dev-k">operator</span><span class="dev-v" id="sig-operator">…</span></div>
       </div>
       <div class="outbox" id="signal-out">Refresh to read the signal.</div>
+    </section>
+
+    <!-- 15 LOGS -->
+<section class="panel accent-amber" id="panel-logs">
+      <div class="panel-head">
+        <h2><span class="idx">15</span> Logs</h2>
+        <button class="btn ghost small" id="logs-copy">copy all</button>
+      </div>
+      <p class="hint">Live engine log — every request, scan, probe and error. Copy this
+        when something misbehaves; it is the fastest way to see what the app was doing.</p>
+      <div class="tool-row">
+        <select id="logs-level" class="sel" style="width:130px">
+          <option value="">all levels</option>
+          <option value="DEBUG">debug</option>
+          <option value="INFO">info</option>
+          <option value="WARNING">warning</option>
+          <option value="ERROR">error</option>
+          <option value="CRITICAL">critical</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="logs-autoscroll" checked /> auto-scroll</label>
+        <label class="chk"><input type="checkbox" id="logs-follow" checked /> live</label>
+        <button class="btn ghost small" id="logs-refresh">refresh</button>
+        <button class="btn ghost small" id="logs-clear">clear</button>
+        <button class="btn ghost small" id="logs-download">download .txt</button>
+      </div>
+      <div class="metric"><span class="m-label">lines</span><span class="m-val" id="logs-count">0</span></div>
+      <div class="outbox tall" id="logs-out" style="max-height:52vh">waiting for log lines…</div>
     </section>
 
     </div>
@@ -4604,6 +4791,10 @@ textarea.targets { min-height: 78px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* ---------- logs tab ---------- */
+#logs-out { white-space: pre-wrap; word-break: break-word; }
+#logs-count { font-variant-numeric: tabular-nums; }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -6048,6 +6239,9 @@ _WEB_APP_JS = r"""/* ===========================================================
     const line = el("div", "auto-line", `[${stamp}] ${msg}`);
     box.insertBefore(line, box.firstChild);
     while (box.childElementCount > 60) box.removeChild(box.lastChild);
+    // Mirror into the engine log: the browser-side auto-test loop is a prime
+    // suspect for a frozen UI, so its progress must be visible in the Logs tab.
+    uiReport("INFO", "auto-test: " + msg);
   }
 
   function setRing(frac) {
@@ -6499,6 +6693,129 @@ _WEB_APP_JS = r"""/* ===========================================================
       }
     });
   }
+  /* ---------- UI self-reporting ----------
+     The engine log only sees the server. A frozen WebView leaves no server-side
+     trace, so the page reports its own errors and long main-thread blocks to
+     /api/logs/client, where they appear alongside everything else. */
+  const uiQueue = [];
+  function uiReport(level, msg) {
+    uiQueue.push({ level, msg });
+    if (uiQueue.length >= 8) flushUi();
+  }
+  let uiFlushTimer = null;
+  async function flushUi() {
+    if (!uiQueue.length) return;
+    const batch = uiQueue.splice(0, 200);
+    try {
+      await fetch("/api/logs/client", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines: batch }),
+      });
+    } catch {}
+  }
+  window.addEventListener("error", (e) => {
+    uiReport("ERROR", `ui error: ${e.message} @ ${e.filename || "?"}:${e.lineno || 0}`);
+    flushUi();
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const r = e.reason;
+    uiReport("ERROR", `ui promise rejection: ${(r && (r.message || r)) || "unknown"}`);
+    flushUi();
+  });
+  try {
+    new PerformanceObserver((l) => {
+      for (const e of l.getEntries()) {
+        if (e.duration >= 1000) {
+          uiReport("WARNING", `main thread blocked ${Math.round(e.duration)}ms`);
+        }
+      }
+    }).observe({ entryTypes: ["longtask"] });
+  } catch {}
+  document.addEventListener("visibilitychange", () => {
+    uiReport("INFO", `ui ${document.visibilityState}`);
+    flushUi();
+  });
+  window.addEventListener("pagehide", () => { flushUi(); });
+  uiReport("INFO", "ui loaded");
+  flushUi();
+  uiFlushTimer = setInterval(flushUi, 5000);
+
+  /* ============================================================
+     LOGS — live engine log with a one-tap copy for bug reports
+     ============================================================ */
+  const logState = { lines: [], last: 0, timer: null, err: 0 };
+
+  function logLineText(e) {
+    return `${e.t} [${e.level}] ${e.name}: ${e.msg}`;
+  }
+
+  function renderLogs() {
+    const box = $("logs-out");
+    if (!box) return;
+    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+    if (!logState.lines.length) {
+      box.textContent = "no log lines yet — use the app and they will appear here.";
+    } else {
+      box.textContent = logState.lines.map(logLineText).join("\n");
+    }
+    const cnt = $("logs-count");
+    if (cnt) cnt.textContent = String(logState.lines.length);
+    if ($("logs-autoscroll") && $("logs-autoscroll").checked && atBottom) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }
+
+  async function pollLogs(force) {
+    const level = $("logs-level") ? $("logs-level").value : "";
+    const q = force || level ? `?since=0&limit=2000&level=${encodeURIComponent(level)}`
+                             : `?since=${logState.last}`;
+    try {
+      const r = await getJSON("/api/logs" + q);
+      if (force || level) {
+        logState.lines = r.lines || [];
+      } else if (r.lines && r.lines.length) {
+        logState.lines = logState.lines.concat(r.lines).slice(-2000);
+      }
+      logState.last = r.last || logState.last;
+      logState.err = 0;
+      renderLogs();
+    } catch (e) {
+      logState.err++;
+      // Keep polling but stop spamming once the engine is clearly unreachable.
+      if (logState.err === 1) {
+        const box = $("logs-out");
+        if (box) box.textContent = "cannot reach the engine log: " + e.message;
+      }
+    }
+  }
+
+  function logsAsText() {
+    return logState.lines.map(logLineText).join("\n");
+  }
+
+  if ($("logs-copy")) $("logs-copy").addEventListener("click", (e) => {
+    if (!logState.lines.length) { pollLogs(true); return; }
+    copyText(logsAsText(), e.currentTarget);
+  });
+  if ($("logs-refresh")) $("logs-refresh").addEventListener("click", () => pollLogs(true));
+  if ($("logs-level")) $("logs-level").addEventListener("change", () => pollLogs(true));
+  if ($("logs-download")) $("logs-download").addEventListener("click", () => {
+    downloadText("dns_console_log.txt", logsAsText() || "(no log lines)");
+  });
+  if ($("logs-clear")) $("logs-clear").addEventListener("click", async () => {
+    try { await post("/api/logs/clear", {}); } catch {}
+    logState.lines = []; logState.last = 0; renderLogs();
+  });
+
+  function startLogPoll() {
+    if (logState.timer) return;
+    logState.timer = setInterval(() => {
+      if (!$("logs-follow") || $("logs-follow").checked) pollLogs(false);
+    }, 2000);
+  }
+  startLogPoll();
+  pollLogs(true);
+
   loadProbeTargets();
 
   /* ---------- seed ---------- */
@@ -6749,6 +7066,9 @@ def _dns_probe_protocol(ip, packet, count, timeout, kind):
     avg = (sum(durations) / len(durations)) if durations else None
     jitter = (sum(abs(durations[i] - durations[i - 1]) for i in range(1, len(durations)))
               / (len(durations) - 1)) if len(durations) > 1 else 0.0
+    log_event(f"probe {kind} {ip} count={count} timeout={timeout}s -> "
+              f"{'ok ' + str(round(avg, 1)) + 'ms' if ok else 'no reply'}"
+              f" (lost {lost}/{count})", "debug")
     return {"ok": ok, "ms": round(avg, 1) if ok else None,
             "loss": round((lost / count) * 100, 1), "jitter": round(jitter, 1)}
 
@@ -6783,15 +7103,18 @@ def _web_ping_blocking(ip, count=3, timeout=1.5, proto="udp", host="google.com")
                 break
 
     chosen = None
+    chosen_kind = None
     for kind in ("udp", "tcp", "tls"):
         res = proto_results.get(kind)
         if res and res["ok"]:
-            chosen = res
+            chosen, chosen_kind = res, kind
             break
     if chosen:
         latency, loss, jitter = chosen["ms"], chosen["loss"], chosen["jitter"]
+        log_event(f"target {ip} alive via {chosen_kind} {latency}ms", "debug")
     else:
         latency, loss, jitter = 9999.0, 100.0, 999.0
+        log_event(f"target {ip} unreachable ({proto})", "debug")
 
     return {
         "latency": latency, "loss": loss, "jitter": jitter,
@@ -7029,13 +7352,18 @@ def _autotest_loop():
             _AUTOTEST["cycle"] += 1
             cycle = _AUTOTEST["cycle"]
         _autotest_log(f"cycle {cycle} started")
+        log_event(f"auto-test cycle {cycle} started (types={cfg.get('types')}, "
+                  f"interval={cfg.get('interval')}s)")
         summary = {"cycle": cycle, "types": cfg.get("types", [])}
         try:
             if "dns" in cfg.get("types", []):
                 summary["dns"] = _autotest_dns_cycle(cfg)
             summary.update(_autotest_extra_cycle(cfg))
         except Exception as e:
+            import traceback as _tb
             _autotest_log(f"cycle error: {e}")
+            log_event("auto-test cycle error: " + "".join(
+                _tb.format_exception(type(e), e, e.__traceback__)), "error")
             summary["error"] = str(e)
         interval = max(5, int(cfg.get("interval") or 60))
         with _AUTOTEST_LOCK:
@@ -7055,6 +7383,9 @@ def _autotest_loop():
             if nxt <= time.time():
                 nxt = time.time() + interval
             _AUTOTEST["next_run"] = nxt
+            log_event(f"auto-test cycle {cycle} done in "
+                      f"{round(time.time() - cycle_started, 2)}s; next in "
+                      f"{round(nxt - time.time(), 2)}s")
 
 
 def _autotest_start(cfg):
@@ -7504,7 +7835,7 @@ class _ClientGone(Exception):
 
 
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.7"
+    server_version = "DnsConsole/3.8"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7546,6 +7877,10 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path
         query = parse_qs(parsed.query)
+        # Logs tab is polled constantly; logging it would drown everything else.
+        if route != "/api/logs":
+            log_event(f"GET {route}" + (f"?{parsed.query}" if parsed.query else ""),
+                      "debug")
 
         if route in ("/", "/index.html"):
             self._send_text(_WEB_INDEX_HTML, "text/html; charset=utf-8")
@@ -7557,7 +7892,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.7"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.8"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -7605,6 +7940,14 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(_web_route_analysis(host))
         elif route == "/api/autotest":
             self._send_json(_autotest_status())
+        elif route == "/api/logs":
+            since = int(query.get("since", ["0"])[0] or 0)
+            limit = int(query.get("limit", ["0"])[0] or 0)
+            lvl = query.get("level", [""])[0]
+            lines = _log_lines(since=since, limit=limit, level=lvl)
+            with _LOG_LOCK:
+                total = _LOG_SEQ
+            self._send_json({"lines": lines, "last": total, "count": len(lines)})
         elif route == "/api/geo":
             ips = []
             for raw in query.get("ips", [""])[0].split(","):
@@ -7623,6 +7966,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         route = urlparse(self.path).path
         ctype = self.headers.get("Content-Type", "")
+        log_event(f"POST {route} ({ctype.split(';')[0] or 'no content-type'})", "debug")
         # multipart/form-data (native browser file upload) takes priority.
         if route == "/api/import" and ctype.startswith("multipart/form-data"):
             length = int(self.headers.get("Content-Length") or 0)
@@ -7651,6 +7995,25 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             with _WEB_HISTORY_LOCK:
                 _WEB_HISTORY.clear()
             _web_history_save(force=True)
+            self._send_json({"ok": True})
+        elif route == "/api/logs/clear":
+            _log_clear()
+            log_event("log buffer cleared")
+            self._send_json({"ok": True})
+        elif route == "/api/logs/client":
+            # The browser reports its own lifecycle here (page load, JS errors,
+            # main-thread freezes). A WebView that stops responding leaves no
+            # trace on the Python side, so this is the only way to see it.
+            items = body.get("lines") or []
+            if isinstance(items, list):
+                for it in items[:200]:
+                    try:
+                        lvl = str(it.get("level") or "INFO").upper()
+                        msg = str(it.get("msg") or "")
+                    except Exception:
+                        continue
+                    if msg:
+                        _log_add(lvl, "ui", msg)
             self._send_json({"ok": True})
         elif route == "/api/tools/resolve":
             host = _web_str(body.get("host"))
@@ -8250,6 +8613,11 @@ def _web_lan_ip():
 
 
 def web_console_main(argv=None):
+    _install_exception_hooks()
+    _start_watchdog()
+    log_event("engine starting: " + " ".join(sys.argv[:6]))
+    log_event(f"python {platform.python_version()} on {platform.system()} "
+              f"({platform.machine()})")
     parser = argparse.ArgumentParser(description="Local web console for the DNS tester.")
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="preferred port (default 8000)")
@@ -8274,7 +8642,13 @@ def web_console_main(argv=None):
 
     host = "0.0.0.0" if args.all else args.host
     port = _web_pick_port(host, args.port)
-    httpd = ThreadingHTTPServer((host, port), WebConsoleHandler)
+    log_event(f"binding {host}:{port}")
+    try:
+        httpd = ThreadingHTTPServer((host, port), WebConsoleHandler)
+    except Exception as exc:
+        log_event(f"FATAL: cannot bind {host}:{port}: {exc}", "error")
+        raise
+    log_event(f"web console ready on http://{host}:{port}/")
 
     shown_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
     url = f"http://{shown_host}:{port}/"
@@ -8294,7 +8668,11 @@ def web_console_main(argv=None):
 
     # Resume a previously-saved auto-test if the user had it enabled, so the
     # background loop keeps running without re-configuring it every time.
-    _autotest_autoresume()
+    try:
+        _autotest_autoresume()
+        log_event("auto-test config checked")
+    except Exception as exc:
+        log_event(f"auto-test autoresume failed: {exc}", "error")
 
     if not args.no_open:
         threading.Timer(0.7, lambda: _web_open_browser(url)).start()
