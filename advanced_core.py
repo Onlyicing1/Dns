@@ -6743,27 +6743,66 @@ _WEB_APP_JS = r"""/* ===========================================================
   /* ============================================================
      LOGS — live engine log with a one-tap copy for bug reports
      ============================================================ */
-  const logState = { lines: [], last: 0, timer: null, err: 0 };
+  const logState = { lines: [], last: 0, timer: null, err: 0, painted: 0 };
+
+  // Only the tail of the log is painted, and new lines are appended rather than
+  // rewriting the whole buffer. Rewriting all 2000 lines cost ~0.5s of the main
+  // thread on a phone CPU every 2s — that is what made Android report the app as
+  // not responding (repeatedly, every poll).
+  const LOG_PAINT_MAX = 300;
 
   function logLineText(e) {
     return `${e.t} [${e.level}] ${e.name}: ${e.msg}`;
   }
 
-  function renderLogs() {
-    const box = $("logs-out");
-    if (!box) return;
-    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
-    if (!logState.lines.length) {
-      box.textContent = "no log lines yet — use the app and they will appear here.";
-    } else {
-      box.textContent = logState.lines.map(logLineText).join("\n");
-    }
+  function logPanelOpen() {
+    const p = $("panel-logs");
+    return !!p && !p.classList.contains("collapsed");
+  }
+
+  function logAtBottom(box) {
+    return box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  }
+
+  function paintLogMeta(atBottom) {
     const cnt = $("logs-count");
     if (cnt) cnt.textContent = String(logState.lines.length);
-    if ($("logs-autoscroll") && $("logs-autoscroll").checked && atBottom) {
+    const box = $("logs-out");
+    if (box && $("logs-autoscroll") && $("logs-autoscroll").checked && atBottom) {
       box.scrollTop = box.scrollHeight;
     }
   }
+
+  function renderLogsFull() {
+    const box = $("logs-out");
+    if (!box) return;
+    const atBottom = logAtBottom(box);
+    const lines = logState.lines.slice(-LOG_PAINT_MAX);
+    box.textContent = lines.length
+      ? lines.map(logLineText).join("\n")
+      : "no log lines yet — use the app and they will appear here.";
+    logState.painted = lines.length;
+    paintLogMeta(atBottom);
+  }
+
+  function renderLogsAppend(fresh) {
+    const box = $("logs-out");
+    // Nothing to paint while the panel is closed; repaint happens on open.
+    if (!box || !logPanelOpen()) return;
+    const add = fresh.slice(-LOG_PAINT_MAX);
+    // (Re)build when nothing is painted yet, or once the painted tail has grown
+    // to twice the cap. That keeps the DOM bounded without a rebuild per poll.
+    if (!logState.painted || logState.painted + add.length > LOG_PAINT_MAX * 2) {
+      renderLogsFull();
+      return;
+    }
+    const atBottom = logAtBottom(box);
+    box.textContent += "\n" + add.map(logLineText).join("\n");
+    logState.painted += add.length;
+    paintLogMeta(atBottom);
+  }
+
+  function renderLogs() { renderLogsFull(); }
 
   async function pollLogs(force) {
     const level = $("logs-level") ? $("logs-level").value : "";
@@ -6771,14 +6810,18 @@ _WEB_APP_JS = r"""/* ===========================================================
                              : `?since=${logState.last}`;
     try {
       const r = await getJSON("/api/logs" + q);
+      const fresh = r.lines || [];
       if (force || level) {
-        logState.lines = r.lines || [];
-      } else if (r.lines && r.lines.length) {
-        logState.lines = logState.lines.concat(r.lines).slice(-2000);
+        logState.lines = fresh;
+        renderLogsFull();
+      } else if (fresh.length) {
+        logState.lines = logState.lines.concat(fresh).slice(-2000);
+        renderLogsAppend(fresh);
+      } else if (logPanelOpen() && !logState.painted) {
+        renderLogsFull();
       }
       logState.last = r.last || logState.last;
       logState.err = 0;
-      renderLogs();
     } catch (e) {
       logState.err++;
       // Keep polling but stop spamming once the engine is clearly unreachable.
@@ -6788,6 +6831,15 @@ _WEB_APP_JS = r"""/* ===========================================================
       }
     }
   }
+
+  // Repaint the moment the panel is opened: lines may have arrived while it was
+  // closed, in which case nothing was painted.
+  (function watchLogPanel() {
+    const p = $("panel-logs");
+    if (!p || !window.MutationObserver) return;
+    new MutationObserver(() => { if (logPanelOpen()) renderLogsFull(); })
+      .observe(p, { attributes: true, attributeFilter: ["class"] });
+  })();
 
   function logsAsText() {
     return logState.lines.map(logLineText).join("\n");
@@ -6804,7 +6856,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   });
   if ($("logs-clear")) $("logs-clear").addEventListener("click", async () => {
     try { await post("/api/logs/clear", {}); } catch {}
-    logState.lines = []; logState.last = 0; renderLogs();
+    logState.lines = []; logState.last = 0; logState.painted = 0; renderLogsFull();
   });
 
   function startLogPoll() {
@@ -7835,7 +7887,7 @@ class _ClientGone(Exception):
 
 
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.8"
+    server_version = "DnsConsole/3.9"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7892,7 +7944,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.8"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.9"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
