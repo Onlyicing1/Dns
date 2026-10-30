@@ -72,7 +72,8 @@ jobs:
         working-directory: android
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK"
 
       - name: Rename APK
         working-directory: android
