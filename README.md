@@ -12,6 +12,43 @@ Everything is in a single `advanced_core.py`: the CLI, the web server, and the
 dashboard front-end (HTML/CSS/JS are embedded as strings). There is nothing else
 to copy alongside it — just run the one file.
 
+## Android app
+
+There is also an Android build that packages the exact same `advanced_core.py`
+into an installable APK. It is a thin native shell: the script runs inside the
+app (bundled with [Chaquopy](https://chaquo.com/chaquopy/)) and the app shows the
+same local web console in a full-screen WebView. Nothing about the UI is
+reimplemented — it is the same page you get from `--web`.
+
+Download the latest signed APK from the
+[**Releases page**](https://github.com/Onlyicing1/Dns/releases/latest):
+
+1. Open the Releases page on your phone and download `dns-console-*.apk`.
+2. Tap the file and allow "Install unknown apps" for your browser when prompted.
+3. Open **DNS Console**. The engine starts automatically and the dashboard loads.
+
+Notes:
+
+- Requires Android 7.0 (API 24) or newer. Builds ship `arm64-v8a` (all modern
+  phones) and `x86_64` (emulators).
+- The engine listens on `127.0.0.1` only — nothing on your network can reach it.
+- The APK is signed with a public keystore that lives in `android/keystore/`
+  (committed on purpose, so CI can sign without repository secrets). See
+  `android/keystore.properties` for the security trade-off.
+- Local scans, DNS management, and AI analysis all work as on desktop. Features
+  that need root or Shizuku (APN benchmark, some device telemetry) behave on
+  Android exactly as they do in Termux — they need the same access.
+
+To build it yourself:
+
+```bash
+cd android
+./gradlew :app:assembleRelease     # needs JDK 17 + Android SDK 34
+```
+
+Pushing a tag like `v1.0.0` (or running the **Android Release** workflow by hand)
+builds the APK and attaches it to a GitHub Release.
+
 ## Run the CLI
 
 ```bash

@@ -1,0 +1,85 @@
+name: Android Release
+
+# Builds the DNS Console Android app (a WebView host around the repo's own
+# advanced_core.py, bundled with Chaquopy) and attaches the signed APK to a
+# GitHub Release so it can be downloaded straight from the Releases page.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name (e.g. 1.0.0)"
+        required: true
+        default: "1.0.0"
+      version_code:
+        description: "Version code (integer, must increase every release)"
+        required: true
+        default: "1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            NAME="${GITHUB_REF_NAME#v}"
+            CODE=$(echo "${NAME}" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
+            [ "${CODE}" -gt 0 ] 2>/dev/null || CODE=1
+          else
+            NAME="${{ github.event.inputs.version_name }}"
+            CODE="${{ github.event.inputs.version_code }}"
+          fi
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "code=${CODE}" >> "$GITHUB_OUTPUT"
+          echo "Building versionName=${NAME} versionCode=${CODE}"
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Verify APK is signed
+        working-directory: android
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK"
+
+      - name: Rename APK
+        working-directory: android
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dns-console-${{ steps.ver.outputs.name }}.apk"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dns-console-apk
+          path: android/dns-console-*.apk
+
+      - name: Publish to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/dns-console-*.apk
+          generate_release_notes: true

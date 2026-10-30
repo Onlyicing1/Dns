@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# NOTE: android/keystore/ and android/keystore.properties ARE committed on
+# purpose. GitHub Actions cannot create repository secrets for this project, and
+# a stable signing key is required so that a new APK installs as an *update*
+# over a previously installed one. See keystore.properties for the trade-off.
