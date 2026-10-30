@@ -1,15 +1,13 @@
-import os, sys, re, time, urllib.request, urllib.error, json, random, asyncio, socket
+import os, sys, re, time, urllib.request, urllib.error, json, random, asyncio, socket, struct
 import argparse
 import concurrent.futures
 import logging
-import hashlib
 import platform
-import secrets
 import shutil
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Optional, Dict, List, Any, Callable
+from typing import Dict, List, Any, Callable
 from urllib.parse import urlparse, parse_qs
 
 # Force UTF-8 stdout regardless of the Termux locale
@@ -267,6 +265,7 @@ def safe_run_shizuku_cmd(cmd: str) -> str:
 DB_FILE = os.path.expanduser("~/.dns_services.json")
 PINNED_FILE = os.path.expanduser("~/.dns_pinned.json")
 DNS_LIST_FILE = os.path.expanduser("~/dns_list.txt")
+AUTOTEST_FILE = os.path.expanduser("~/.dns_autotest.json")
 
 RADIO_COOLDOWN_SECONDS = 4          # HyperOS radio needs this pause after an APN switch
 VPN_MTU = 1350                      # Recommended MTU for the WireGuard/VPN tunnel (manual setup)
@@ -284,63 +283,174 @@ GAME_PROTOCOL_DB = {
     "Apex Legends": {
         "ports": [37015, 37016, 37017, 37018, 37019, 37020, 37021, 37022, 37023, 37024, 37025],
         "protocol": "udp",
-        "note": "Apex uses UDP on ports 37015-37025 for game traffic. Source: EA/Respawn docs."
+        "hosts": ["ea.com", "eaassets-a.akamaihd.net", "respawn.com"],
+        "note": "Apex uses UDP on ports 37015-37025 for game traffic. Source: EA/Respawn docs.",
     },
     "Valorant": {
         "ports": [5060, 5061, 3478, 3479, 37015],
         "protocol": "udp",
-        "note": "Valorant uses UDP on 3478-3479 (peer-to-peer) and 5060-5061 (voice)."
+        "hosts": ["riotgames.com", "valorant.secure.dyn.riotcdn.net", "riotcdn.net"],
+        "note": "Valorant uses UDP on 3478-3479 (peer-to-peer) and 5060-5061 (voice).",
     },
     "Fortnite": {
         "ports": [7848, 7849, 37015],
         "protocol": "udp",
-        "note": "Fortnite uses UDP on 7848-7849 for game traffic."
+        "hosts": ["epicgames.com", "fortnite.com", "cdn2.epicgames.com"],
+        "note": "Fortnite uses UDP on 7848-7849 for game traffic.",
     },
     "Call of Duty": {
         "ports": [3074, 3075, 3076, 3077],
         "protocol": "udp",
-        "note": "CoD uses UDP on 3074-3077 for matchmaking and gameplay."
+        "hosts": ["callofduty.com", "activision.com"],
+        "note": "CoD uses UDP on 3074-3077 for matchmaking and gameplay.",
     },
     "PUBG": {
         "ports": [27015, 27016, 27017, 27018, 27019],
         "protocol": "udp",
-        "note": "PUBG uses UDP on 27015-27019 for game servers."
+        "hosts": ["pubg.com", "pubgmobile.com"],
+        "note": "PUBG uses UDP on 27015-27019 for game servers.",
     },
     "League of Legends": {
         "ports": [5190, 5191, 5192, 5193, 5194],
         "protocol": "udp",
-        "note": "LoL uses UDP on 5190-5194 for game client communication."
+        "hosts": ["leagueoflegends.com", "riotcdn.net"],
+        "note": "LoL uses UDP on 5190-5194 for game client communication.",
     },
     "Overwatch": {
         "ports": [11196, 11197, 11198, 11199, 11200],
         "protocol": "udp",
-        "note": "Overwatch uses UDP on 11196-11200 for game traffic."
+        "hosts": ["blizzard.com", "blizzardcdn.com", "battle.net"],
+        "note": "Overwatch uses UDP on 11196-11200 for game traffic.",
     },
     "Rainbow Six Siege": {
         "ports": [3074, 3075, 3076, 3077, 3078],
         "protocol": "udp",
-        "note": "R6 Siege uses UDP on 3074-3078 for game servers."
+        "hosts": ["ubisoft.com", "ubisoftconnect.com"],
+        "note": "R6 Siege uses UDP on 3074-3078 for game servers.",
+    },
+    "Rocket League": {
+        "ports": [7000, 7001, 7002, 7777, 7778, 7779, 9000],
+        "protocol": "udp",
+        "hosts": ["rocketleague.com", "epicgames.com"],
+        "note": "Rocket League uses UDP on 7000-7002 / 7777-7779 / 9000.",
+    },
+    "Marvel Rivals": {
+        "ports": [443, 37000, 37001],
+        "protocol": "both",
+        "hosts": ["marvelrivals.com", "netease.com"],
+        "note": "Marvel Rivals uses TCP/443 for API and UDP for match traffic.",
+    },
+    "Genshin Impact": {
+        "ports": [443, 42472, 10001],
+        "protocol": "both",
+        "hosts": ["hoyoverse.com", "genshin.hoyoverse.com"],
+        "note": "Genshin uses TCP/443 for launcher/API; game traffic is UDP.",
+    },
+    "Where Winds Meet": {
+        "ports": [443, 8001, 8002],
+        "protocol": "both",
+        "hosts": ["wherewindsmeetgame.com", "netease.com"],
+        "note": "NetEase title. TCP/443 for API; UDP for gameplay. Confirm in-game if unsure.",
+    },
+    "Delta Force": {
+        "ports": [443, 27015, 27016],
+        "protocol": "both",
+        "hosts": ["playdeltaforce.com", "garena.com"],
+        "note": "Delta Force uses TCP/443 for API and UDP for match traffic.",
+    },
+    "Roblox": {
+        "ports": [443, 53640],
+        "protocol": "both",
+        "hosts": ["roblox.com"],
+        "note": "Roblox uses TCP/443 for API and UDP for game traffic.",
+    },
+    "Minecraft": {
+        "ports": [25565],
+        "protocol": "tcp",
+        "hosts": ["minecraft.net", "mojang.com"],
+        "note": "Minecraft (Java) uses TCP/25565.",
+    },
+    "Steam / CS2 / Dota": {
+        "ports": [27015, 27016, 27017, 27018, 27019, 27020, 27021, 27022, 27023, 27024, 27025, 27026, 27027, 27028, 27029, 27030, 27031, 27032, 27033, 27034, 27035, 27036],
+        "protocol": "both",
+        "hosts": ["steamcommunity.com", "steampowered.com", "steamcontent.com"],
+        "note": "Source engine titles use UDP 27015-27036; Steam client/auth is TCP/443.",
+    },
+    "World of Warcraft": {
+        "ports": [3724, 8085],
+        "protocol": "both",
+        "hosts": ["blizzard.com", "battle.net"],
+        "note": "WoW uses TCP/3724 (auth) and TCP/8085 (world). Regional realms: us/eu/kr.battle.net.",
     },
     "Google Core": {
         "ports": [443],
         "protocol": "tcp",
-        "note": "Google services use TCP/443."
+        "hosts": ["google.com"],
+        "note": "Google services use TCP/443.",
     },
     "EA Auth": {
         "ports": [443],
         "protocol": "tcp",
-        "note": "EA authentication uses TCP/443."
+        "hosts": ["ea.com"],
+        "note": "EA authentication uses TCP/443.",
     },
-    "Marvel Rivals": {
-        "ports": [443],
-        "protocol": "tcp",
-        "note": "Marvel Rivals uses TCP/443 for API calls."
-    },
+}
+
+# Real regional endpoints, where the provider actually exposes per-region
+# hostnames. Used to steer a scan at the datacenter closest to the user.
+GAME_REGIONAL_HOSTS = {
+    "World of Warcraft": {"us": ["us.battle.net"], "eu": ["eu.battle.net"], "kr": ["kr.battle.net"]},
 }
 
 # Default ports for unknown games/services
 DEFAULT_PORTS = [443, 80]
 DEFAULT_PROTOCOL = "tcp"
+
+
+def game_catalog():
+    """Structured view of GAME_PROTOCOL_DB for the UI and the AI."""
+    out = []
+    for name, cfg in GAME_PROTOCOL_DB.items():
+        out.append({
+            "name": name,
+            "ports": cfg.get("ports", DEFAULT_PORTS),
+            "protocol": cfg.get("protocol", DEFAULT_PROTOCOL),
+            "hosts": cfg.get("hosts", []),
+            "note": cfg.get("note", ""),
+            "regions": sorted(GAME_REGIONAL_HOSTS.get(name, {}).keys()),
+        })
+    return out
+
+
+def game_endpoints(game_name, region=None):
+    """Hostnames to probe for a game, preferring a requested region."""
+    cfg = GAME_PROTOCOL_DB.get(game_name, {})
+    hosts = list(cfg.get("hosts", []))
+    regional = GAME_REGIONAL_HOSTS.get(game_name, {})
+    if region and region in regional:
+        return list(regional[region]) + hosts
+    return hosts
+
+
+def game_port_plan(game_name, port=None, protocol=None):
+    """Decide which port(s) and protocol to test for a game.
+
+    An explicit port/protocol (e.g. suggested by the AI) wins over the built-in
+    defaults, so the user can test a specific port for a game we don't know yet
+    (the AI is asked to look these up)."""
+    cfg = GAME_PROTOCOL_DB.get(game_name, {})
+    ports = list(cfg.get("ports", DEFAULT_PORTS))
+    proto = cfg.get("protocol", DEFAULT_PROTOCOL)
+    if port:
+        try:
+            p = int(port)
+            if 1 <= p <= 65535:
+                ports = [p] + [x for x in ports if x != p]
+        except (TypeError, ValueError):
+            pass
+    if protocol in ("udp", "tcp", "tls", "both", "auto"):
+        proto = protocol
+    return ports, proto
 
 # ---- NEW: Export report functionality ----
 def export_report(results, filename="telemetry_report.txt"):
@@ -392,16 +502,19 @@ def graceful_degrade(func):
 
 # ---- NEW: Multi-hop testing ----
 async def multi_hop_test(dns_servers, target_host):
-    """Test latency through multiple DNS servers sequentially."""
+    """Resolve `target_host` through each DNS server in turn and time the lookup."""
     results = []
-    current_dns = None
     for dns in dns_servers:
         try:
             loop = asyncio.get_running_loop()
-            rtt, ok = await loop.run_in_executor(None, lambda: tcp_ping(target_host, 443, timeout=2.0))
-            results.append({"dns": dns, "rtt": rtt if ok else None, "ok": ok})
-        except:
-            results.append({"dns": dns, "rtt": None, "ok": False})
+            start = time.perf_counter()
+            ip = await loop.run_in_executor(
+                None, lambda d=dns: native_dns_resolver(target_host, d))
+            ms = round((time.perf_counter() - start) * 1000, 1)
+            results.append({"dns": dns, "ip": ip, "rtt": ms if ip else None,
+                            "ok": bool(ip)})
+        except Exception:
+            results.append({"dns": dns, "ip": None, "rtt": None, "ok": False})
     return results
 
 # ---- NEW: TLS handshake time measurement ----
@@ -1266,26 +1379,28 @@ class _TCPConnectionPool:
         try:
             start = time.perf_counter()
             # Try to reuse existing connection
+            loop = asyncio.get_running_loop()
             if key in self._connections:
                 sock = self._connections.pop(key)
                 try:
-                    sock.settimeout(timeout)
                     sock.setblocking(False)
+                    # A pooled socket is only still good if the peer hasn't
+                    # closed it; a readable socket that returns b"" is EOF.
                     try:
-                        sock.recv(1, socket.MSG_PEEK)
-                        elapsed = (time.perf_counter() - start) * 1000
-                        self._connections[key] = sock
-                        return elapsed, True
-                    except:
+                        probe = await asyncio.wait_for(loop.sock_recv(sock, 1), timeout=0.001)
+                    except asyncio.TimeoutError:
+                        probe = b"\x00"  # nothing pending: connection is idle and alive
+                    if probe == b"":
+                        raise ConnectionError("peer closed pooled socket")
+                    elapsed = (time.perf_counter() - start) * 1000
+                    self._connections[key] = sock
+                    return elapsed, True
+                except Exception:
+                    try:
                         sock.close()
-                        sock = None
-                except:
-                    if sock:
-                        try:
-                            sock.close()
-                        except:
-                            pass
-                        sock = None
+                    except Exception:
+                        pass
+                    sock = None
 
             # Create new connection
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1349,7 +1464,16 @@ async def udp_ping(host, port=37015, count=3, timeout=1.5):
             try:
                 start_time = time.perf_counter()
                 await loop.sock_sendto(sock, packet, (ip, port))
-                data = await asyncio.wait_for(loop.sock_recvfrom(sock, 512), timeout=timeout)
+                # Ignore datagrams that didn't come back from the target — a
+                # stray packet from anywhere would otherwise be timed as a reply.
+                deadline = loop.time() + timeout
+                while True:
+                    data, addr = await asyncio.wait_for(
+                        loop.sock_recvfrom(sock, 512), timeout=timeout)
+                    if addr and addr[0] == ip:
+                        break
+                    if loop.time() >= deadline:
+                        raise TimeoutError("no reply from target")
                 end_time = time.perf_counter()
                 durations.append((end_time - start_time) * 1000)
             except Exception:
@@ -1379,23 +1503,46 @@ def _is_ip_address(host):
     except:
         return False
 
-async def protocol_aware_ping(host, game_name, count=3, timeout=1.5):
+async def protocol_aware_ping(host, game_name, count=3, timeout=1.5, port=None, protocol=None):
     """Protocol-aware ping: uses UDP for game ports, TCP for standard ports.
-    This is the key optimization — game traffic is UDP, so TCP ping is misleading."""
-    config = GAME_PROTOCOL_DB.get(game_name, {})
-    ports = config.get("ports", DEFAULT_PORTS)
-    protocol = config.get("protocol", DEFAULT_PROTOCOL)
+    This is the key optimization — game traffic is UDP, so TCP ping is misleading.
+
+    `port`/`protocol` (e.g. what the AI suggested for a game we don't know)
+    override the built-in defaults. 'both' tries UDP then TCP and returns the
+    first that answers; 'auto' does the same but also tries TLS/DoT."""
+    ports, protocol = game_port_plan(game_name, port=port, protocol=protocol)
     primary_port = ports[0]
 
-    if protocol == "udp":
+    async def _udp():
         return await udp_ping(host, primary_port, count, timeout)
-    else:
-        # TCP ping via executor (blocking socket)
+
+    async def _tcp():
         loop = asyncio.get_running_loop()
-        rtt, ok = await loop.run_in_executor(None, lambda: tcp_ping(host, primary_port, timeout))
-        if ok:
-            return rtt, 0.0, 0.0
-        return None, 100.0, 0.0
+        rtt, ok = await loop.run_in_executor(
+            None, lambda: tcp_ping(host, primary_port, timeout))
+        return (rtt, 0.0, 0.0) if ok else (None, 100.0, 0.0)
+
+    async def _tls():
+        # DoT uses a fixed 853 unless the caller explicitly overrode the port.
+        loop = asyncio.get_running_loop()
+        index = 443 if primary_port == 443 else (853 if port is None else primary_port)
+        rtt, ok = await loop.run_in_executor(
+            None, lambda: tcp_ping(host, index, timeout))
+        return (rtt, 0.0, 0.0) if ok else (None, 100.0, 0.0)
+
+    if protocol == "udp":
+        return await _udp()
+    if protocol == "tcp":
+        return await _tcp()
+    if protocol == "tls":
+        return await _tls()
+    # 'auto' tries every protocol; 'both' stops at UDP/TCP. First answer wins.
+    attempts = (_udp, _tcp, _tls) if protocol == "auto" else (_udp, _tcp)
+    for attempt in attempts:
+        latency, loss, jitter = await attempt()
+        if latency is not None:
+            return latency, loss, jitter
+    return None, 100.0, 0.0
 
 # ---- OPTIMIZATION: Adaptive timeout based on RTT ----
 # Fast DNS servers get short timeout; slow ones get more
@@ -1542,62 +1689,72 @@ def select_game_target():
 # ============================================================
 #  DNS RESOLUTION / RAW ASYNC PING CORE
 # ============================================================
+_DNS_TYPE_CODES = {
+    "A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "PTR": 12, "MX": 15,
+    "TXT": 16, "AAAA": 28, "SRV": 33, "HTTPS": 65,
+}
+
+
+def _dns_type_code(qtype):
+    """Coerce a record type (int or 'A'/'AAAA'/'TXT'/...) to its numeric code."""
+    if isinstance(qtype, bool):
+        return 1
+    if isinstance(qtype, int):
+        return qtype & 0xFFFF
+    name = str(qtype).strip().upper()
+    if name in _DNS_TYPE_CODES:
+        return _DNS_TYPE_CODES[name]
+    if name.startswith("TYPE"):
+        name = name[4:]
+    try:
+        return int(name) & 0xFFFF
+    except ValueError:
+        return 1
+
+
 def _build_dns_query(host, qtype=1):
     """Build a DNS query packet for the given hostname and record type."""
-    import struct
-    import random as _random
     # Header: ID (random), flags (standard query), questions, answers, authority, additional
-    txid = _random.randint(1, 65535)
+    txid = random.randint(1, 65535)
     header = struct.pack('!HHHHHH', txid, 0x0100, 1, 0, 0, 0)
     # Question section
     question = b''
-    for part in host.split('.'):
-        question += bytes([len(part)]) + part.encode()
+    for part in str(host).strip().rstrip('.').split('.'):
+        raw = part.encode()[:63]     # a label is capped at 63 bytes (RFC 1035)
+        if not raw:
+            continue                 # skip empty labels (e.g. from "a..b")
+        question += bytes([len(raw)]) + raw
     question += b'\x00'
-    question += struct.pack('!H', qtype)  # QTYPE
+    question += struct.pack('!H', _dns_type_code(qtype))  # QTYPE
     question += b'\x00\x01'  # QCLASS = IN
     return header + question
 
 def _parse_dns_response(data):
-    """Parse DNS response and extract IP addresses."""
-    import struct
+    """Parse a DNS response and return the first A-record IP (or None)."""
+    if not data or len(data) < 12:
+        return None
+    if not (data[2] & 0x80):        # QR bit: must be a response
+        return None
+    if data[3] & 0x0F:              # RCODE: 0 = NOERROR
+        return None
     try:
-        if len(data) < 12:
-            return None
-        # Skip header (12 bytes)
-        # Parse answer count from header
         qdcount = struct.unpack('!H', data[4:6])[0]
         ancount = struct.unpack('!H', data[6:8])[0]
-        # Skip question section
         pos = 12
         for _ in range(qdcount):
-            while data[pos] != 0:
-                pos += data[pos] + 1
-            pos += 1
+            _, pos = _dns_read_name(data, pos)
             pos += 4  # QTYPE + QCLASS
-        # Parse answers
         for _ in range(ancount):
-            # Skip name (could be compressed)
-            if data[pos] & 0xC0 == 0xC0:
-                pos += 2  # Compressed name pointer
-            else:
-                while data[pos] != 0:
-                    pos += data[pos] + 1
-                pos += 1
-            # Type, Class, TTL, RDLENGTH
+            _, pos = _dns_read_name(data, pos)
             if pos + 10 > len(data):
                 break
-            rtype = struct.unpack('!H', data[pos:pos+2])[0]
-            rclass = struct.unpack('!H', data[pos+2:pos+4])[0]
-            ttl = struct.unpack('!I', data[pos+4:pos+8])[0]
-            rdlength = struct.unpack('!H', data[pos+8:pos+10])[0]
+            rtype, _rclass, _ttl, rdlength = struct.unpack('!HHIH', data[pos:pos + 10])
             pos += 10
-            rdata = data[pos:pos+rdlength]
+            rdata = data[pos:pos + rdlength]
             if rtype == 1 and rdlength == 4:  # A record
-                ip = '.'.join(str(b) for b in rdata)
-                return ip
+                return '.'.join(str(b) for b in rdata)
             pos += rdlength
-    except:
+    except Exception:
         pass
     return None
 
@@ -1620,21 +1777,22 @@ def native_dns_resolver(host, dns_server, timeout=1.0):
         cached_ip, cached_ts = _DNS_CACHE[cache_key]
         if now - cached_ts < _DNS_CACHE_TTL:
             return cached_ip
-    if dns_server and not _is_ip_address(dns_server):
-        try:
-            dns_ip = socket.getaddrinfo(dns_server, None, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
-        except Exception:
-            dns_ip = None
-    
     # Try the specified DNS server first via real UDP DNS query
     if dns_ip and _is_ip_address(dns_ip):
+        sock = None
         try:
             query = _build_dns_query(host)
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(timeout)
-            sock.sendto(query, (dns_ip, 53))
-            data, _ = sock.recvfrom(512)
-            sock.close()
+            sock.connect((dns_ip, 53))
+            sock.send(query)
+            # Only accept a reply carrying this query's transaction ID, so a
+            # stray datagram can't be mistaken for the answer.
+            want_id = query[:2]
+            while True:
+                data = sock.recv(512)
+                if len(data) >= 12 and data[:2] == want_id and (data[2] & 0x80):
+                    break
             ip = _parse_dns_response(data)
             if ip:
                 _DNS_CACHE[cache_key] = (ip, now)
@@ -1643,6 +1801,12 @@ def native_dns_resolver(host, dns_server, timeout=1.0):
             pass
         except Exception:
             pass
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
     
     # Fallback: try system resolver
     try:
@@ -1662,7 +1826,6 @@ def _dns_query_raw(host, qtype, dns_server, timeout=2.0):
     Uses a public resolver (default 1.1.1.1) rather than the target being
     benchmarked, because this is for lookups *about* a server, not *through* it.
     Falls back to TCP when the UDP reply is truncated (TC flag)."""
-    import struct
     dns_ip = dns_server
     if dns_server and not _is_ip_address(dns_server):
         try:
@@ -1671,31 +1834,49 @@ def _dns_query_raw(host, qtype, dns_server, timeout=2.0):
         except Exception:
             dns_ip = "1.1.1.1"
     packet = _build_dns_query(host, qtype)
+    sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(timeout)
-        sock.sendto(packet, (dns_ip, 53))
-        data, _ = sock.recvfrom(2048)
-        sock.close()
-        if len(data) >= 4 and (data[2] & 0x02):  # TC bit → retry over TCP
+        sock.connect((dns_ip, 53))
+        sock.send(packet)
+        # Match the transaction ID so a stale/spoofed datagram isn't parsed as
+        # this query's answer.
+        want_id = packet[:2]
+        while True:
+            data = sock.recv(2048)
+            if len(data) >= 12 and data[:2] == want_id and (data[2] & 0x80):
+                break
+        if data[2] & 0x02:  # TC bit → retry over TCP
             return _dns_query_raw_tcp(dns_ip, packet, timeout)
         return data
     except Exception:
         return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def _dns_query_raw_tcp(dns_ip, packet, timeout):
+    sock = None
     try:
         sock = socket.create_connection((dns_ip, 53), timeout)
         sock.settimeout(timeout)
         sock.sendall(len(packet).to_bytes(2, "big") + packet)
         head = _dns_recv_exact(sock, 2)
         length = int.from_bytes(head, "big")
-        data = _dns_recv_exact(sock, length)
-        sock.close()
-        return data
+        return _dns_recv_exact(sock, length)
     except Exception:
         return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def _dns_read_name(data, pos):
@@ -1728,7 +1909,6 @@ def _dns_read_name(data, pos):
 
 def _parse_dns_txt(data):
     """Return the list of TXT-record strings in a DNS response."""
-    import struct
     if not data or len(data) < 12:
         return []
     try:
@@ -1802,7 +1982,6 @@ def _parse_dns_answers(data, want_qtype=1):
     are the concatenated string; other types are returned as raw hex."""
     if not data or len(data) < 12:
         return []
-    import struct
     try:
         qdcount = struct.unpack("!H", data[4:6])[0]
         ancount = struct.unpack("!H", data[6:8])[0]
@@ -1941,6 +2120,26 @@ _WEB_PROBE_TARGETS = {
 }
 
 
+def _web_str(value):
+    """Coerce a JSON body value to a stripped string without ever raising."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value).strip()
+    return ""
+
+
+def _web_safe_port(value, default=443):
+    """Coerce a client-supplied port to a valid TCP/UDP port number."""
+    try:
+        p = int(value)
+    except (TypeError, ValueError):
+        return default
+    return p if 1 <= p <= 65535 else default
+
+
 def _web_probe_host(sel):
     """Map a probe-target key (or a raw hostname) to the hostname to resolve.
 
@@ -1960,7 +2159,8 @@ def _web_recommend_pairs(rows, fanout=2):
     countries (so a single country/outage can't take both), then also offer the
     best same-country pair as a faster (but less diverse) alternative.
     Returns {"cross": [...], "same": [...], "by_country": {...}}."""
-    alive = [r for r in rows if r.get("status") == "ok" and r.get("latency") is not None]
+    alive = [r for r in rows if isinstance(r, dict)
+             and r.get("status") == "ok" and r.get("latency") is not None]
     alive.sort(key=lambda r: r["latency"])
 
     def brief(r):
@@ -1993,6 +2193,266 @@ def _web_recommend_pairs(rows, fanout=2):
         if g["best"] is None or r["latency"] < g["best"]["latency"]:
             g["best"] = brief(r)
     return {"cross": cross, "same": same, "by_country": by_country}
+
+
+def _web_recommend_pairs_filtered(rows, countries=None, fanout=2):
+    """Like _web_recommend_pairs, but restricted to a set of country codes.
+
+    `countries` is a list of ISO-2 codes (lower-case or upper-case). When empty
+    or falsy, behaves exactly like _web_recommend_pairs."""
+    if not countries:
+        return _web_recommend_pairs(rows, fanout=fanout)
+    wanted = {str(c).strip().upper() for c in countries if str(c).strip()}
+    pool = [r for r in rows if (r.get("country") or "").upper() in wanted]
+    return _web_recommend_pairs(pool, fanout=fanout)
+
+
+# --- Route / path intelligence ------------------------------------------------
+# We can't read a traceroute back out of Python on a stock Android device
+# without Shizuku, but we CAN determine where we (the public egress IP) and the
+# game servers sit, and use that to reason about the path and pick the closest
+# resolvers. That is the useful part of "create a route for them".
+
+def _web_ip_geo(ip, timeout=3.0):
+    """Geo-locate a single IP (country + city + lat/lon) via ip-api."""
+    if not ip:
+        return {}
+    try:
+        url = (f"http://ip-api.com/json/{urllib.parse.quote(ip)}"
+               "?fields=status,country,countryCode,regionName,city,lat,lon,isp,org,as,query")
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception:
+        return {}
+
+
+def _haversine_km(a_lat, a_lon, b_lat, b_lon):
+    """Great-circle distance in km (physical distance, ignores routing)."""
+    try:
+        import math
+        r = 6371.0
+        d_lat = math.radians(b_lat - a_lat)
+        d_lon = math.radians(b_lon - a_lon)
+        h = (math.sin(d_lat / 2) ** 2
+             + math.cos(math.radians(a_lat)) * math.cos(math.radians(b_lat))
+             * math.sin(d_lon / 2) ** 2)
+        return round(2 * r * math.asin(min(1.0, math.sqrt(h))), 1)
+    except Exception:
+        return None
+
+
+def _web_route_analysis(game_host, region=None, rows=None):
+    """Describe the physical route: us (public IP) -> game endpoint, plus the
+    distance, and a note on whether a VPN is likely adding a detour.
+
+    Then we use that egress location to judge which resolvers are "on the same
+    route" (closest), which is what actually lowers game ping."""
+    ip, country, isp = analyze_gateway()
+    egress = _web_ip_geo(ip) if ip else {}
+    target_ip = ""
+    if game_host:
+        target_ip = game_host if _is_ip_address(game_host) else (native_dns_resolver(game_host, "8.8.8.8") or "")
+    target = _web_ip_geo(target_ip) if target_ip else {}
+    iface = detect_active_interface()
+    vpn = is_vpn_interface(iface)
+    dist = None
+    if egress.get("lat") is not None and target.get("lat") is not None:
+        dist = _haversine_km(egress["lat"], egress["lon"], target["lat"], target["lon"])
+    hops = []
+    for label, g in (("you (egress)", egress), ("game endpoint", target)):
+        if g:
+            hops.append({
+                "label": label,
+                "ip": g.get("query") or (ip if label.startswith("you") else target_ip),
+                "country": g.get("countryCode") or "",
+                "country_name": g.get("country") or "",
+                "city": g.get("city") or "",
+                "org": g.get("isp") or g.get("org") or "",
+            })
+    on_route = _web_resolvers_on_route(rows or [], egress, limit=8)
+    return {
+        "egress": egress,
+        "target": target,
+        "target_host": game_host or "",
+        "target_ip": target_ip,
+        "region": region or "",
+        "vpn": vpn,
+        "interface": iface,
+        "distance_km": dist,
+        "hops": hops,
+        "on_route": on_route,
+        "note": _route_note(egress, target, vpn, dist),
+    }
+
+
+def _route_note(egress, target, vpn, dist):
+    if not egress or not target:
+        return "Could not geolocate one end of the route."
+    parts = []
+    ec, tc = egress.get("countryCode") or "?", target.get("countryCode") or "?"
+    if vpn:
+        parts.append("VPN tunnel detected — the egress IP is the VPN exit, not your physical link.")
+    if ec == tc:
+        parts.append("Your egress and the game endpoint share a country — minimal physical distance.")
+    else:
+        parts.append(f"Egress ({ec}) and game endpoint ({tc}) are in different countries; "
+                     "expect extra inter-country hops.")
+    if dist:
+        parts.append(f"~{dist} km (great-circle).")
+    parts.append("Test resolvers whose exit country matches this egress for the shortest path.")
+    return " ".join(parts)
+
+
+def _country_centroid_geo(cc):
+    """Look up the public IP + geo of a reference host inside a country.
+
+    ip-api can't enumerate "give me an IP in country X", but it returns the
+    country's own registry entry via a well-known anycast (1.1.1.1 -> US, etc.),
+    so we approximate using the largest ASN we already know. Falls back to a
+    small built-in centroid table for common game countries."""
+    table = {
+        "DE": (51.0, 10.4), "NL": (52.1, 5.3), "FR": (46.6, 2.5), "GB": (54.0, -2.0),
+        "FI": (64.0, 26.0), "SE": (62.0, 15.0), "PL": (52.1, 19.4), "ES": (40.4, -3.7),
+        "IT": (41.9, 12.6), "TR": (39.0, 35.2), "IR": (32.4, 53.7), "AE": (24.0, 54.0),
+        "SA": (24.0, 45.0), "US": (39.5, -98.4), "CA": (56.1, -106.3), "BR": (-14.2, -51.9),
+        "IN": (20.6, 79.0), "SG": (1.35, 103.8), "JP": (36.2, 138.3), "KR": (35.9, 127.8),
+        "CN": (35.9, 104.2), "AU": (-25.3, 133.8), "RU": (61.5, 105.3), "ZA": (-30.6, 22.9),
+    }
+    return table.get(str(cc).upper())
+
+
+def _web_resolvers_on_route(rows, egress_geo, limit=8):
+    """Rank scanned resolvers by how likely they sit on our route to the game.
+
+    We rank by country first (same as the egress = shortest path), then by the
+    great-circle distance from the egress to that country's centroid, then by
+    latency. This avoids a per-resolver geo API call for every scanned server."""
+    egress_cc = (egress_geo or {}).get("countryCode") or ""
+    e_centroid = _country_centroid_geo(egress_cc)
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get("status") != "ok" or r.get("latency") is None:
+            continue
+        cc = (r.get("country") or "").upper()
+        c_centroid = _country_centroid_geo(cc)
+        dist = None
+        if e_centroid and c_centroid:
+            dist = _haversine_km(e_centroid[0], e_centroid[1], c_centroid[0], c_centroid[1])
+        out.append({**r, "same_country": cc == egress_cc.upper(),
+                    "distance_km": dist})
+    out.sort(key=lambda r: (
+        not r["same_country"],
+        r["distance_km"] if r["distance_km"] is not None else 1e9,
+        r["latency"],
+    ))
+    return out[:limit]
+
+
+# --- Signal strength / network tech ------------------------------------------
+
+def _web_signal_strength():
+    """Read the cellular signal (dBm/asu/level/tech) and recommend a radio mode.
+
+    Only available through Shizuku (`cmd phone` / `dumpsys telephony.registry`);
+    without it we report what we can and say so, rather than guessing."""
+    raw = run_shizuku_cmd("dumpsys telephony.registry")
+    info = {"available": False, "dbm": None, "asu": None, "level": None,
+            "technology": None, "operator": None, "source": "shizuku"}
+    if raw:
+        m = re.search(r"mSignalStrength=SignalStrength:\s*([^\n]+)", raw)
+        if m:
+            blob = m.group(1)
+            for key, pat in (("dbm", r"rsrp=(-?\d+)"), ("dbm", r"rssi=(-?\d+)"),
+                             ("asu", r"asu=(\d+)"), ("level", r"level=(\d+)")):
+                mm = re.search(pat, blob)
+                if mm and info[key] is None:
+                    info[key] = int(mm.group(1))
+            info["available"] = info["dbm"] is not None
+        mt = re.search(r"mServiceState=.*?([A-Z_]+)", raw)
+        if mt:
+            info["technology"] = mt.group(1)
+    operator, net_type = get_live_hardware_data()
+    info["operator"] = operator
+    if info["technology"] is None:
+        info["technology"] = net_type
+    info["quality"] = _signal_quality(info["dbm"])
+    info["recommendation"] = _signal_recommendation(info["dbm"], info.get("technology"))
+    return info
+
+
+def _signal_quality(dbm):
+    if dbm is None:
+        return "unknown"
+    if dbm >= -80:
+        return "excellent"
+    if dbm >= -90:
+        return "good"
+    if dbm >= -100:
+        return "fair"
+    if dbm >= -110:
+        return "poor"
+    return "very poor"
+
+
+def _signal_recommendation(dbm, technology):
+    if dbm is None:
+        return ("Signal strength needs Shizuku to read. Grant Shizuku for a real dBm "
+                "reading and a radio-mode recommendation.")
+    tech = (technology or "").upper()
+    if dbm <= -110:
+        return ("Very weak signal. Drop to 3G/4G (LTE) — a 5G/NR link spends more time "
+                "re-selecting and adds jitter, which hurts game ping more than the raw "
+                "bandwidth helps. Try moving near a window or re-orienting.")
+    if dbm <= -100:
+        return ("Weak signal. Prefer 4G (LTE) over 5G for gaming: more stable RTT and "
+                "fewer handovers. If 4G is weak too, lock 3G to keep the link alive.")
+    if dbm <= -90:
+        return ("Fair signal. 4G is usually the sweet spot; enable 5G only if the signal "
+                "reads better than ~-85 dBm. Watch jitter, not just latency.")
+    if "NR" in tech or "5G" in tech:
+        return "Strong signal — 5G is fine and should give the lowest latency."
+    return "Good signal — leave the radio on its automatic/5G preference."
+
+
+# --- MTU intelligence (VPN + game protocol aware) -----------------------------
+
+def _mtu_advice(mtu, vpn, protocol=None, game=None):
+    """Turn an MTU number into a per-protocol payload recommendation.
+
+    If a VPN tunnel is in play the game traffic must fit inside the tunnel MTU;
+    a payload too big is silently fragmented (or dropped), which shows up as
+    packet loss and lag spikes in-game."""
+    safe = mtu - 28 if mtu else None
+    out = {"mtu": mtu, "payload": safe, "vpn": bool(vpn),
+           "protocol": protocol or "", "game": game or ""}
+    if not mtu:
+        out["advice"] = "Could not determine MTU."
+        return out
+    notes = []
+    if vpn:
+        notes.append(f"VPN tunnel: {mtu} is the tunnel MTU; the largest non-fragmenting "
+                     f"payload is {safe} bytes.")
+    else:
+        notes.append(f"Direct link: {mtu} MTU, largest payload {safe} bytes.")
+    if protocol in ("udp", "both", "auto") or protocol is None:
+        notes.append("For UDP game traffic, oversized packets are dropped rather than "
+                     "fragmented in some paths — stay at or below the payload figure.")
+    if protocol == "tcp":
+        notes.append("For TCP, MSS is clamped automatically once MTU is correct.")
+    out["advice"] = " ".join(notes)
+    return out
+
+
+def _web_mtu_intelligence(game=None, protocol=None):
+    mtu, mode, iface = resolve_smart_mtu()
+    vpn = is_vpn_interface(iface)
+    plan = game_port_plan(game or "", protocol=protocol) if game else ([], protocol or "")
+    proto = plan[1] if game else (protocol or "")
+    info = _mtu_advice(mtu, vpn, protocol=proto, game=game)
+    info.update({"mode": mode, "interface": iface})
+    return info
 
 
 
@@ -2029,8 +2489,7 @@ class RetryHandler:
                 if attempt < self.max_retries - 1:
                     delay = min(self.max_delay, self.base_delay * (2 ** attempt))
                     if self.jitter:
-                        import random as _random
-                        delay = delay * _random.uniform(0.5, 1.5)
+                        delay = delay * random.uniform(0.5, 1.5)
                     logger.debug(f"Retry {attempt + 1}/{self.max_retries} after {delay:.2f}s: {e}")
                     await asyncio.sleep(delay)
         raise last_exception
@@ -2047,8 +2506,7 @@ class RetryHandler:
                 if attempt < self.max_retries - 1:
                     delay = min(self.max_delay, self.base_delay * (2 ** attempt))
                     if self.jitter:
-                        import random as _random
-                        delay = delay * _random.uniform(0.5, 1.5)
+                        delay = delay * random.uniform(0.5, 1.5)
                     logger.debug(f"Retry {attempt + 1}/{self.max_retries} after {delay:.2f}s: {e}")
                     time.sleep(delay)
         raise last_exception
@@ -2085,8 +2543,16 @@ async def async_ping_dns_core(ip_address, port=53, count=3, timeout=1.5):
                 # Fresh blocking socket per query - much more reliable
                 qs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 qs.settimeout(timeout)
-                qs.sendto(packet, (ip_address, port))
-                data, _ = qs.recvfrom(512)
+                qs.connect((ip_address, port))
+                qs.send(packet)
+                # Only accept the reply whose transaction ID matches this query —
+                # a late answer to the *previous* packet would otherwise be timed
+                # as if it belonged to this one.
+                want_id = packet[:2]
+                while True:
+                    data = qs.recv(512)
+                    if len(data) >= 12 and data[:2] == want_id and (data[2] & 0x80):
+                        break
                 end_time = time.perf_counter()
                 durations.append((end_time - start_time) * 1000)
                 breaker.record_success()
@@ -2124,8 +2590,9 @@ async def measure_item_async(item, timeout=1.5):
 
 async def measure_game_latency_async(item, target_host, game_name):
     """Protocol-aware game latency measurement.
-    Uses TCP ping for game-specific ports (Apex, Valorant, etc.) since most game servers
-    don't respond to arbitrary UDP pings. TCP port check is more reliable for connectivity testing.
+    Game traffic is UDP for most titles, so a TCP connect to a UDP game port is a
+    false negative (it always fails). We therefore UDP-ping UDP games and TCP-ping
+    TCP games — the same rule the rest of the tool follows.
     
     Includes early termination: if DNS latency is too high, skip game latency test."""
     res_item = dict(item)
@@ -2136,7 +2603,6 @@ async def measure_game_latency_async(item, target_host, game_name):
     if not resolved_ip:
         resolved_ip = target_host
 
-    # Protocol-aware ping — use TCP for reliability (most game servers respond on TCP ports)
     config = GAME_PROTOCOL_DB.get(game_name, {})
     ports = config.get("ports", DEFAULT_PORTS)
     protocol = config.get("protocol", DEFAULT_PROTOCOL)
@@ -2158,10 +2624,20 @@ async def measure_game_latency_async(item, target_host, game_name):
         res_item["early_terminated"] = True
         return res_item
 
-    rtt, ok = await loop.run_in_executor(None, lambda: tcp_ping(resolved_ip, primary_port, timeout=1.5))
-    lat = rtt if ok else None
-    loss = 0.0 if ok else 100.0
-    jit = 0.0
+    if protocol == "udp":
+        lat, loss, jit = await udp_ping(resolved_ip, primary_port, count=3, timeout=1.5)
+        if lat is None:
+            # Most game servers ignore arbitrary UDP probes. Fall back to a TCP
+            # handshake on 443 so the user still gets a usable host RTT instead of
+            # a bare "unreachable".
+            rtt, ok = await loop.run_in_executor(
+                None, lambda: tcp_ping(resolved_ip, 443, timeout=1.5))
+            if ok:
+                lat, loss, jit = rtt, 0.0, 0.0
+    else:
+        rtt, ok = await loop.run_in_executor(
+            None, lambda: tcp_ping(resolved_ip, primary_port, timeout=1.5))
+        lat, loss, jit = (rtt, 0.0, 0.0) if ok else (None, 100.0, 0.0)
 
     res_item["game_latency"] = lat
     res_item["game_loss"] = loss
@@ -2622,11 +3098,6 @@ async def run_advanced_telemetry_async():
 
     gw_ip, gw_country, isp = analyze_gateway()
 
-    # ---- NEW: Background DNS prefetch ----
-    # Resolve target host IP in background while we load the DNS list
-    loop = asyncio.get_running_loop()
-    target_ip_task = loop.run_in_executor(None, native_dns_resolver, target_host, "8.8.8.8")
-
     all_loaded_pairs = []
     available_countries = set()
 
@@ -2758,7 +3229,7 @@ async def run_advanced_telemetry_async():
                 sys.stdout.write("\033[2J\033[H")
                 sys.stdout.flush()
                 print(_header_border)
-                print(f"   ASYNCIO MATRIX TELEMETRY CORE v6 - NATIVE LAYER (No Jitter Spike)  ")
+                print("   ASYNCIO MATRIX TELEMETRY CORE v6 - NATIVE LAYER (No Jitter Spike)  ")
                 print(_header_border)
                 print(f" {ANSI_GREEN}Hardware{ANSI_RESET} : {operator} [{net_type}]  |  Golden MTU: {ANSI_YELLOW}{golden_mtu}{ANSI_RESET} [{mtu_mode}]")
                 print(f" {ANSI_GREEN}VPN Exit{ANSI_RESET} : {gw_ip} [{gw_country}] via {isp}")
@@ -2771,9 +3242,6 @@ async def run_advanced_telemetry_async():
                 for idx, item in enumerate(display_list, start=1):
                     s_dns = item['pair'][1] if len(item['pair']) > 1 else '1.1.1.1'
                     game_lat = item.get('game_latency')
-                    game_loss = item.get('game_loss', 0)
-                    proto = item.get('protocol', 'tcp')
-                    port = item.get('port', 0)
                     if game_lat is not None and game_lat > 0 and game_lat < 9000:
                         game_str = f"{game_lat:.1f}ms"
                     else:
@@ -2799,8 +3267,6 @@ async def run_advanced_telemetry_async():
                         loss_val = p_item.get('loss', 0)
                         geo_val = p_item.get('country', 'DE')
                         game_lat_val = p_item.get('game_latency')
-                        game_loss_val = p_item.get('game_loss', 0)
-                        proto = p_item.get('protocol', 'tcp')
                         status = "[WARN] SPIKE" if jit_val > 45.0 else "[OK]"
                         if game_lat_val is not None and game_lat_val > 0 and game_lat_val < 9000:
                             game_str = f" Game: {game_lat_val:.1f}ms"
@@ -2978,6 +3444,8 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <a data-target="panel-diagnosis"  href="#panel-diagnosis"><span class="di">10</span> Diagnosis</a>
       <a data-target="panel-ai"         href="#panel-ai"><span class="di">11</span> AI Analysis</a>
       <a data-target="panel-appearance" href="#panel-appearance"><span class="di">12</span> Appearance</a>
+      <a data-target="panel-route"      href="#panel-route"><span class="di">13</span> Route · Path</a>
+      <a data-target="panel-signal"     href="#panel-signal"><span class="di">14</span> Signal · Radio</a>
     </nav>
   </aside>
 
@@ -3043,6 +3511,19 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 
       <div class="table-tools">
         <input type="text" id="filter" placeholder="filter results (ip, status…)" spellcheck="false" />
+        <label class="field"><span>country</span>
+          <input type="text" id="country-filter" placeholder="e.g. DE, NL, US" spellcheck="false" style="width:120px" />
+        </label>
+        <label class="field"><span>sort by</span>
+          <select id="sort-by" class="sel">
+            <option value="latency">lowest latency</option>
+            <option value="reliability">most reliable (score)</option>
+            <option value="jitter">lowest jitter</option>
+            <option value="loss">lowest packet loss</option>
+            <option value="combined">best overall (all three)</option>
+            <option value="country">country (A→Z)</option>
+          </select>
+        </label>
         <label class="chk"><input type="checkbox" id="only-ok" /> alive only</label>
       </div>
 
@@ -3060,6 +3541,11 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="reco" id="reco" hidden>
         <h3>Recommended pairs</h3>
         <div class="reco-grid" id="reco-grid"></div>
+      </div>
+
+      <div class="export-row">
+        <button class="btn ghost small" id="copy-results">copy results</button>
+        <button class="btn ghost small" id="export-txt">export TXT</button>
       </div>
     </section>
 
@@ -3097,7 +3583,15 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <button class="btn ghost" id="auto-stop">stop</button>
         </div>
       </div>
-      <p class="hint">Runs the scan on a timer, forever. Fully customizable — interval, protocol, packets, jitter/latency alert thresholds.</p>
+      <p class="hint">Runs the scan on a timer, forever. Fully customizable — interval, protocol, packets, jitter/latency alert thresholds. Pick what to test below, and turn on background mode to keep cycling while you use the app.</p>
+
+      <div class="auto-types">
+        <span class="auto-types-label">test what</span>
+        <label class="chk"><input type="checkbox" id="auto-type-dns" checked /> DNS servers</label>
+        <label class="chk"><input type="checkbox" id="auto-type-mtu" /> MTU</label>
+        <label class="chk"><input type="checkbox" id="auto-type-signal" /> signal strength</label>
+        <label class="chk"><input type="checkbox" id="auto-background" checked /> background (keep testing)</label>
+      </div>
 
       <div class="auto-grid">
         <label class="field"><span>interval</span>
@@ -3223,7 +3717,17 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <button class="chip" data-tool="protocols">UDP / TCP / TLS</button>
         <button class="chip" data-tool="dig">Dig targets</button>
       </div>
-      <select id="tool-game" class="sel"></select>
+      <div class="tool-row">
+        <select id="tool-game" class="sel"></select>
+        <input type="text" id="tool-game-port" placeholder="port (optional, e.g. 37015)" spellcheck="false" style="width:180px" />
+        <select id="tool-game-proto" class="sel" style="width:110px">
+          <option value="">proto (auto)</option>
+          <option value="udp">UDP</option>
+          <option value="tcp">TCP</option>
+          <option value="both">UDP+TCP</option>
+        </select>
+        <button class="btn ghost small" id="tool-game-plan">AI: find port</button>
+      </div>
       <div class="outbox" id="tool-out">Pick a probe to test a host.</div>
     </section>
 
@@ -3331,6 +3835,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <input type="text" id="ai-question" placeholder="optional: ask something specific, e.g. “best for gaming in EU?”" spellcheck="false" />
       </div>
       <div class="outbox tall" id="ai-out">Run a scan, then hit ANALYSE SCAN for an AI recommendation.</div>
+      <div class="export-row">
+        <button class="btn ghost small" id="ai-copy">copy answer</button>
+        <button class="btn ghost small" id="ai-export">export TXT</button>
+      </div>
     </section>
 
     <!-- 12 APPEARANCE -->
@@ -3402,6 +3910,40 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         </div>
       </div>
     </section>
+
+    <!-- 13 ROUTE · PATH -->
+<section class="panel accent-amber" id="panel-route">
+      <div class="panel-head">
+        <h2><span class="idx">13</span> Route · Path</h2>
+        <button class="btn ghost" id="route-run">analyse</button>
+      </div>
+      <p class="hint">Where your VPN egress sits vs. the game server, and which scanned resolvers are closest to that route.</p>
+      <div class="tool-row">
+        <input type="text" id="route-host" placeholder="game server host e.g. eu.battle.net" spellcheck="false" />
+        <select id="route-game" class="sel"><option value="">— pick a game —</option></select>
+        <select id="route-region" class="sel" style="width:110px"><option value="">region</option></select>
+      </div>
+      <div class="outbox" id="route-out">Pick a game (or type a host) and hit ANALYSE.</div>
+      <div class="device-grid" id="route-grid" style="margin-top:10px"></div>
+      <div class="outbox" id="route-route"></div>
+    </section>
+
+    <!-- 14 SIGNAL -->
+<section class="panel accent-green" id="panel-signal">
+      <div class="panel-head">
+        <h2><span class="idx">14</span> Signal · Radio</h2>
+        <button class="btn ghost" id="signal-refresh">refresh</button>
+      </div>
+      <p class="hint">Reads the cellular signal (dBm) and recommends a radio mode. Needs Shizuku for a real reading.</p>
+      <div class="device-grid" id="signal-grid">
+        <div class="dev-cell"><span class="dev-k">signal</span><span class="dev-v" id="sig-dbm">…</span></div>
+        <div class="dev-cell"><span class="dev-k">quality</span><span class="dev-v" id="sig-quality">…</span></div>
+        <div class="dev-cell"><span class="dev-k">technology</span><span class="dev-v" id="sig-tech">…</span></div>
+        <div class="dev-cell"><span class="dev-k">operator</span><span class="dev-v" id="sig-operator">…</span></div>
+      </div>
+      <div class="outbox" id="signal-out">Refresh to read the signal.</div>
+    </section>
+
     </div>
   </main>
 
@@ -3940,6 +4482,25 @@ textarea.targets { min-height: 78px; }
 /* ---------- accessibility ---------- */
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--acc) 70%, transparent); outline-offset: 2px; }
 
+/* ---------- new feature bits (round 13) ---------- */
+.export-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.export-row .btn { flex: 0 0 auto; }
+.auto-types {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin: 8px 0 4px; padding: 8px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--acc) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--acc) 18%, transparent);
+}
+.auto-types-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+.ptag.ptag-warn { background: color-mix(in srgb, #ffb86b 22%, transparent); color: #ffd7a6; }
+.outbox table.ai-table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+.outbox table.ai-table th, .outbox table.ai-table td {
+  border: 1px solid color-mix(in srgb, var(--acc) 22%, transparent);
+  padding: 4px 8px; text-align: left;
+}
+.outbox table.ai-table th { background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.copy-ok { color: #7dffb0; }
+
 /* ---------- responsive ---------- */
 /* Below ~1080px the two columns no longer fit side by side: stack them and let
    the page scroll. Each panel also gets a sane floor so nothing is crushed. */
@@ -3981,6 +4542,10 @@ _WEB_APP_JS = r"""/* ===========================================================
   };
   const fmt = (v, unit = "ms", digits = 1) =>
     v == null ? "—" : `${Number(v).toFixed(digits)}${unit}`;
+
+  // Shared across features so the AI can see what the other panels found.
+  let lastMtuIntel = null;
+  let lastRoute = null;
 
   /* ---------- clock ---------- */
   const clock = $("clock");
@@ -4348,14 +4913,53 @@ _WEB_APP_JS = r"""/* ===========================================================
     });
   }
 
+  function rowScore(r, mode) {
+    // Lower is better. Missing metrics are pushed to the end by the sorters.
+    const lat = r.latency == null ? 1e9 : r.latency;
+    const jit = r.jitter == null ? 1e6 : r.jitter;
+    const loss = r.loss == null ? 1e4 : r.loss;
+    if (mode === "jitter") return jit;
+    if (mode === "loss") return loss;
+    if (mode === "reliability") return jit * 4 + loss * 30 + lat * 0.2;
+    if (mode === "combined") return lat + jit * 2 + loss * 10;
+    return lat; // latency
+  }
+
+  function sortRows(list) {
+    const mode = ($("sort-by") && $("sort-by").value) || "latency";
+    const copy = list.slice();
+    if (mode === "country") {
+      copy.sort((a, b) => {
+        const ca = (a.country_name || a.country || "~").toLowerCase();
+        const cb = (b.country_name || b.country || "~").toLowerCase();
+        if (ca !== cb) return ca < cb ? -1 : 1;
+        return (a.latency ?? 1e9) - (b.latency ?? 1e9);
+      });
+      return copy;
+    }
+    copy.sort((a, b) => {
+      const af = a.status !== "ok", bf = b.status !== "ok";
+      if (af !== bf) return af ? 1 : -1;
+      return rowScore(a, mode) - rowScore(b, mode);
+    });
+    return copy;
+  }
+
   function visibleRows() {
     const q = $("filter").value.trim().toLowerCase();
+    const cc = ($("country-filter") ? $("country-filter").value : "").trim().toLowerCase();
+    const ccSet = cc.split(/[\s,]+/).filter(Boolean);
     const onlyOk = $("only-ok").checked;
-    return rows.filter((r) => {
+    const list = rows.filter((r) => {
       if (onlyOk && r.status !== "ok") return false;
+      if (ccSet.length) {
+        const rcc = `${r.country || ""} ${r.country_name || ""}`.toLowerCase();
+        if (!ccSet.some((c) => rcc.includes(c))) return false;
+      }
       if (q && !(`${r.target} ${r.status} ${r.proto_used || ""} ${r.country_name || ""}`.toLowerCase().includes(q))) return false;
       return true;
     });
+    return sortRows(list);
   }
 
   // Redrawing on every streamed row is fine for a handful of targets but
@@ -4458,6 +5062,24 @@ _WEB_APP_JS = r"""/* ===========================================================
     box.hidden = false;
   }
 
+  // Re-rank the recommended pairs when the user narrows by country, so the
+  // "best pair" reflects the countries they actually care about.
+  let pairTimer = null;
+  function refreshPairs() {
+    if (!rows.length) return;
+    const cc = ($("country-filter") && $("country-filter").value.trim()) || "";
+    const countries = cc.split(/[\s,]+/).filter(Boolean);
+    clearTimeout(pairTimer);
+    pairTimer = setTimeout(async () => {
+      try {
+        const r = await post("/api/pairs",
+          { rows: rows.filter((x) => x.status === "ok"), countries });
+        renderPairs(r);
+      } catch {}
+    }, 350);
+  }
+  if ($("country-filter")) $("country-filter").addEventListener("input", refreshPairs);
+
   function updateMetrics() {
     const ok = rows.filter((r) => r.status === "ok" && r.latency != null);
     $("stat-done").textContent = rows.length;
@@ -4472,6 +5094,8 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("clear-targets").addEventListener("click", () => { targetsBox.value = ""; targetsBox.focus(); });
   $("filter").addEventListener("input", renderResults);
   $("only-ok").addEventListener("change", renderResults);
+  if ($("sort-by")) $("sort-by").addEventListener("change", renderResults);
+  if ($("country-filter")) $("country-filter").addEventListener("input", renderResults);
   targetsBox.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runScan();
   });
@@ -4497,6 +5121,83 @@ _WEB_APP_JS = r"""/* ===========================================================
     a.download = "dns_scan_results.csv";
     a.click();
     URL.revokeObjectURL(a.href);
+  });
+
+  /* ---------- share helpers (copy to clipboard + .txt download) ---------- */
+  async function copyText(text, btn) {
+    const done = () => {
+      if (!btn) return;
+      const old = btn.textContent;
+      btn.textContent = "copied ✓";
+      btn.classList.add("copy-ok");
+      setTimeout(() => { btn.textContent = old; btn.classList.remove("copy-ok"); }, 1400);
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        done();
+        return true;
+      }
+    } catch {}
+    // Fallback for non-secure contexts (http:// on a LAN IP): a hidden textarea.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done();
+      return true;
+    } catch { return false; }
+  }
+
+  function downloadText(name, text) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function resultsAsText() {
+    const list = sortRows(rows);
+    const head = ["#", "DNS Server", "Country", "Latency(ms)", "Jitter(ms)", "Loss(%)", "Proto", "Status"];
+    const lines = [`DNS scan results — ${new Date().toISOString()}`, ""];
+    const widths = head.map((h, i) => Math.max(h.length,
+      ...list.map((r, n) => String(cellFor(r, n, i)).length)));
+    const pad = (s, w) => String(s).padEnd(w);
+    lines.push(head.map((h, i) => pad(h, widths[i])).join(" | "));
+    lines.push(widths.map((w) => "-".repeat(w)).join("-+-"));
+    list.forEach((r, n) => lines.push(head.map((h, i) => pad(cellFor(r, n, i), widths[i])).join(" | ")));
+    lines.push("", `Total: ${list.length} · alive: ${list.filter((r) => r.status === "ok").length}`);
+    return lines.join("\n");
+  }
+
+  function cellFor(r, n, i) {
+    switch (i) {
+      case 0: return n + 1;
+      case 1: return r.target;
+      case 2: return r.country_name || r.country || "—";
+      case 3: return r.latency ?? "—";
+      case 4: return r.jitter ?? "—";
+      case 5: return r.loss ?? "—";
+      case 6: return (r.proto_used || r.proto || "udp").toUpperCase();
+      case 7: return r.status;
+      default: return "";
+    }
+  }
+
+  if ($("copy-results")) $("copy-results").addEventListener("click", (e) => {
+    if (!rows.length) { progressText.textContent = "nothing to copy"; return; }
+    copyText(resultsAsText(), e.currentTarget);
+  });
+  if ($("export-txt")) $("export-txt").addEventListener("click", () => {
+    if (!rows.length) { progressText.textContent = "nothing to export"; return; }
+    downloadText("dns_scan_results.txt", resultsAsText());
   });
 
   /* ============================================================
@@ -4616,14 +5317,22 @@ _WEB_APP_JS = r"""/* ===========================================================
     },
     game: async (host) => {
       const game = $("tool-game").value;
-      const r = await post("/api/tools/game", { host, game, count: 3 });
-      return r.ok ? kv("game latency", `${r.game} · ${r.latency} ms · loss ${r.loss}%`)
-                  : `<span class="err">no response from ${host}</span>`;
+      const port = parseInt(($("tool-game-port") || {}).value, 10) || 0;
+      const protocol = ($("tool-game-proto") || {}).value || "";
+      const r = await post("/api/tools/game", { host, game, count: 3, port, protocol });
+      if (!r.ok) return `<span class="err">no response from ${r.host || host}${r.port ? " :" + r.port : ""}</span>`;
+      return kv("game", r.game) + "\n" +
+             kv("target", `${r.host} :${r.port} ${(r.protocol || "").toUpperCase()}`) + "\n" +
+             kv("game latency", `${r.latency} ms · loss ${r.loss}%`);
     },
     mtu: async () => {
-      const r = await getJSON("/api/mtu");
+      const game = $("tool-game").value;
+      const protocol = ($("tool-game-proto") || {}).value || "";
+      const r = await getJSON(`/api/mtu-intel?game=${encodeURIComponent(game)}&protocol=${encodeURIComponent(protocol)}`);
+      lastMtuIntel = r;
       return kv("recommended MTU", r.mtu) + "\n" + kv("mode", r.mode) + "\n" +
-             kv("interface", r.interface || "unknown");
+             kv("interface", r.interface || "unknown") + "\n" +
+             kv("safe payload", r.payload) + "\n" + r.advice;
     },
     protocols: async () => {
       const dns = ($("tool-dns").value || "").trim();
@@ -4723,6 +5432,75 @@ _WEB_APP_JS = r"""/* ===========================================================
   loadDevice();
 
   /* ============================================================
+     ROUTE · PATH  (VPN egress -> game server, closest resolvers)
+     ============================================================ */
+  async function runRoute() {
+    const out = $("route-out");
+    const hostField = $("route-host").value.trim();
+    const game = $("route-game") && $("route-game").value;
+    const region = $("route-region") && $("route-region").value;
+    let host = hostField;
+    if (!host && game && game !== "(generic)") {
+      // Ask the backend for a representative endpoint for the chosen region.
+      const g = builtinGames.find((x) => x.name === game);
+      host = (g && g.hosts && g.hosts[0]) || "";
+      if (region && g && g.regions && g.regions.includes(region)) host = host || game;
+    }
+    if (!host) { out.textContent = "pick a game or type a host first."; return; }
+    out.textContent = "analysing route…";
+    try {
+      const r = await post("/api/route", { host, rows: rows.slice(0, 4000), game, region });
+      lastRoute = r;
+      const grid = $("route-grid");
+      grid.innerHTML = "";
+      const cell = (k, v) => `<div class="dev-cell"><span class="dev-k">${k}</span><span class="dev-v">${v ?? "—"}</span></div>`;
+      grid.innerHTML =
+        cell("egress", `${flag(r.egress && r.egress.countryCode)} ${r.egress && r.egress.country || "?"}${r.egress && r.egress.city ? " · " + r.egress.city : ""}`) +
+        cell("vpn tunnel", r.vpn ? "yes" : "no") +
+        cell("target", `${r.target_host}${r.target_ip ? " → " + r.target_ip : ""}`) +
+        cell("target geo", `${flag(r.target && r.target.countryCode)} ${r.target && r.target.country || "?"}${r.target && r.target.city ? " · " + r.target.city : ""}`) +
+        cell("distance", r.distance_km != null ? r.distance_km + " km" : "—");
+      out.innerHTML = mdLite(r.note || "") ;
+      const onRoute = r.on_route || [];
+      const routeBox = $("route-route");
+      if (onRoute.length) {
+        routeBox.innerHTML = "<strong>Resolvers closest to your route:</strong>\n" +
+          onRoute.map((x, i) => `${i + 1}. ${x.target} — ${flag(x.country)} ${x.country_name || "?"} · ` +
+            `${x.latency} ms${x.distance_km != null ? " · " + x.distance_km + " km" : ""}${x.same_country ? " (same country)" : ""}`).join("\n");
+      } else {
+        routeBox.textContent = "Run a scan with geo-locate on, then re-analyse to rank resolvers on this route.";
+      }
+    } catch (e) { out.innerHTML = `<span class="err">error: ${e}</span>`; }
+  }
+  if ($("route-run")) $("route-run").addEventListener("click", runRoute);
+  if ($("route-game")) $("route-game").addEventListener("change", () => {
+    updateRouteRegions();
+    const g = builtinGames.find((x) => x.name === $("route-game").value);
+    if (g && g.hosts && g.hosts.length && !$("route-host").value.trim()) {
+      $("route-host").placeholder = "e.g. " + g.hosts[0];
+    }
+  });
+
+  /* ============================================================
+     SIGNAL · RADIO
+     ============================================================ */
+  async function loadSignal() {
+    const out = $("signal-out");
+    out.textContent = "reading signal…";
+    try {
+      const r = await getJSON("/api/signal");
+      setCell("sig-dbm", r.dbm != null ? r.dbm + " dBm" : (r.available ? "—" : "needs Shizuku"),
+        r.quality === "excellent" || r.quality === "good" ? "on" : r.quality === "unknown" ? "" : "off");
+      setCell("sig-quality", r.quality);
+      setCell("sig-tech", r.technology || "—");
+      setCell("sig-operator", r.operator || "—");
+      out.textContent = r.recommendation || "—";
+    } catch (e) { out.innerHTML = `<span class="err">error: ${e}</span>`; }
+  }
+  if ($("signal-refresh")) $("signal-refresh").addEventListener("click", loadSignal);
+  loadSignal();
+
+  /* ============================================================
      APN BENCHMARK
      ============================================================ */
   const apnList = $("apn-list");
@@ -4781,31 +5559,62 @@ _WEB_APP_JS = r"""/* ===========================================================
      PROFILES
      ============================================================ */
   const profList = $("prof-list");
+  let builtinGames = [];
+  let lastProfiles = {};
+
+  function refreshGameSelects() {
+    const all = [...new Set([...Object.keys(lastProfiles || {}),
+                             ...builtinGames.map((g) => g.name)])];
+    ["tool-game", "route-game"].forEach((id) => {
+      const sel = $(id);
+      if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = "";
+      sel.appendChild(el("option", null, "(generic)"));
+      all.forEach((name) => {
+        const o = el("option", null, name);
+        o.value = name;
+        sel.appendChild(o);
+      });
+      if (prev) sel.value = prev;
+    });
+    updateRouteRegions();
+  }
+
+  function updateRouteRegions() {
+    const sel = $("route-region");
+    if (!sel) return;
+    const game = $("route-game") && $("route-game").value;
+    const g = builtinGames.find((x) => x.name === game);
+    const regions = (g && g.regions) || [];
+    sel.innerHTML = '<option value="">region</option>' +
+      regions.map((r) => `<option value="${r}">${r.toUpperCase()}</option>`).join("");
+  }
+
+  async function loadGames() {
+    try {
+      const r = await getJSON("/api/games");
+      if (r.games) builtinGames = r.games;
+    } catch {}
+    refreshGameSelects();
+  }
 
   function renderProfiles(map) {
+    lastProfiles = map || {};
     profList.innerHTML = "";
-    const names = Object.keys(map || {});
-    const sel = $("tool-game");
-    const prev = sel.value;
-    sel.innerHTML = "";
-    sel.appendChild(el("option", null, "(generic)"));
-    sel.value = "";
+    const names = Object.keys(lastProfiles);
     if (!names.length) {
       profList.appendChild(el("li", null, "no profiles yet"));
     }
     names.forEach((name) => {
       const li = el("li");
-      li.appendChild(el("span", null, `${name} → ${map[name]}`));
+      li.appendChild(el("span", null, `${name} → ${lastProfiles[name]}`));
       const del = el("button", "del", "remove");
       del.addEventListener("click", () => mutateProfiles({ delete: name }));
       li.appendChild(del);
       profList.appendChild(li);
-
-      const opt = el("option", null, name);
-      opt.value = name;
-      sel.appendChild(opt);
     });
-    if (prev) sel.value = prev;
+    refreshGameSelects();
   }
 
   async function mutateProfiles(payload) {
@@ -4822,6 +5631,34 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (name && host) { mutateProfiles({ add: { name, host } }); $("prof-name").value = ""; $("prof-host").value = ""; }
   });
   loadProfiles();
+  loadGames();
+
+  /* ---------- AI: find the port/protocol for a game ---------- */
+  if ($("tool-game-plan")) $("tool-game-plan").addEventListener("click", async () => {
+    const game = $("tool-game").value;
+    if (!game || game === "(generic)") {
+      renderTool(`<span class="err">pick a game first (or type its name as the host)</span>`);
+      return;
+    }
+    renderTool("asking the AI for ports/protocol…");
+    try {
+      const key = (aiKey.value || "").trim();
+      const r = await post("/api/ai/game-plan",
+        { game, api_key: key, model: aiModel.value.trim() });
+      if (r.error) {
+        renderTool(`<span class="err">${r.error}</span>` +
+          (r.hint ? `\n<span class="ok">Tip: ${r.hint}</span>` : ""));
+        return;
+      }
+      if (r.ports && r.ports.length) $("tool-game-port").value = r.ports[0];
+      if (r.protocol && $("tool-game-proto")) $("tool-game-proto").value = r.protocol;
+      renderTool(kv("game", r.game) + "\n" +
+        kv("ports", (r.ports || []).join(", ") || "—") + "\n" +
+        kv("protocol", (r.protocol || "").toUpperCase()) + "\n" +
+        kv("source", r.source) + (r.region_host ? "\n" + kv("region host", r.region_host) : "") +
+        (r.note ? "\n" + r.note : ""));
+    } catch (e) { renderTool(`<span class="err">error: ${e}</span>`); }
+  });
 
   /* ============================================================
      DIAGNOSIS
@@ -4993,13 +5830,66 @@ _WEB_APP_JS = r"""/* ===========================================================
   loadModels(false);
 
   function mdLite(text) {
-    const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return esc
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`(.+?)`/g, "<code>$1</code>")
-      .replace(/^###?\s+(.*)$/gm, "<h4>$1</h4>")
-      .replace(/^\s*[-*]\s+(.*)$/gm, "• $1");
+    // Keep the raw text around: the AI is asked for plain text, and models often
+    // emit pipe tables. We render those as real <table>s, but never mangle a
+    // table that the model already drew with spaces/dashes.
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lines = String(text == null ? "" : text).split(/\r?\n/);
+    const out = [];
+    let i = 0;
+    const isTableRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+    const isSepRow = (l) => /^\s*\|?[\s:|-]+\|?\s*$/.test(l) && l.includes("-");
+    while (i < lines.length) {
+      if (isTableRow(lines[i]) && i + 1 < lines.length && isSepRow(lines[i + 1])) {
+        const header = lines[i].trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+        i += 2;
+        const body = [];
+        while (i < lines.length && isTableRow(lines[i])) {
+          body.push(lines[i].trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+          i++;
+        }
+        let html = '<table class="ai-table"><thead><tr>' +
+          header.map((h) => `<th>${esc(h)}</th>`).join("") + "</tr></thead><tbody>";
+        body.forEach((row) => {
+          html += "<tr>" + row.map((c) => `<td>${esc(c)}</td>`).join("") + "</tr>";
+        });
+        out.push(html + "</tbody></table>");
+        continue;
+      }
+      let l = esc(lines[i]);
+      l = l.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+           .replace(/`(.+?)`/g, "<code>$1</code>")
+           .replace(/^###?\s+(.*)$/, "<h4>$1</h4>")
+           .replace(/^\s*[-*]\s+(.*)$/, "• $1");
+      out.push(l);
+      i++;
+    }
+    return out.join("\n");
   }
+
+  let lastAiAnswer = "";
+
+  // Everything the dashboard knows, bundled so the AI can reason over all of it.
+  function aiContext() {
+    const ctx = {
+      timestamp: new Date().toISOString(),
+      game: ($("tool-game") && $("tool-game").value) || "",
+      sort_by: ($("sort-by") && $("sort-by").value) || "latency",
+      countries: ($("country-filter") && $("country-filter").value.trim()) || "",
+      resolver_count: rows.length,
+    };
+    const net = {
+      public_ip: textOf("net-ip"), country: textOf("net-country"), isp: textOf("net-isp"),
+      interface: textOf("net-iface"), vpn: textOf("net-vpn"), mtu: textOf("net-mtu"),
+    };
+    if (net.public_ip && net.public_ip !== "…") ctx.network = net;
+    const sig = { dbm: textOf("sig-dbm"), quality: textOf("sig-quality"), technology: textOf("sig-tech") };
+    if (sig.dbm && sig.dbm !== "…") ctx.signal = sig;
+    if (lastMtuIntel) ctx.mtu_intelligence = lastMtuIntel;
+    if (lastRoute) ctx.route = lastRoute;
+    return ctx;
+  }
+  const textOf = (id) => (($(id) && $(id).textContent) || "").trim();
 
   async function runAI(withQuestion) {
     const key = aiKey.value.trim();
@@ -5013,10 +5903,12 @@ _WEB_APP_JS = r"""/* ===========================================================
       aiOut.innerHTML = `<span class="err">Run a scan first (or type a question).</span>`;
       return;
     }
-    const payload = { api_key: key, model: aiModel.value.trim(), results: results || [] };
+    const payload = { api_key: key, model: aiModel.value.trim(), results: results || [],
+                      context: aiContext(), sort_by: aiContext().sort_by };
+    const cc = ($("country-filter") && $("country-filter").value.trim()) || "";
+    if (cc) payload.countries = cc.split(/[\s,]+/).filter(Boolean);
     const q = $("ai-question").value.trim();
-    if (q) payload.prompt = (results ? "DNS scan results:\n" +
-      (results || []).map((r) => `- ${r.target}: ${r.latency ?? "unreachable"} ms, jitter ${r.jitter ?? "?"}, loss ${r.loss ?? "?"}%`).join("\n") + "\n\n" : "") + q;
+    if (q) payload.prompt = q;
 
     aiOut.textContent = "thinking… (contacting OpenRouter)";
     try {
@@ -5027,7 +5919,8 @@ _WEB_APP_JS = r"""/* ===========================================================
           (r.detail ? `\n<code>${String(r.detail).replace(/[<>&]/g, "")}</code>` : "");
         return;
       }
-      aiOut.innerHTML = mdLite(r.analysis || "(empty response)") +
+      lastAiAnswer = r.analysis || "";
+      aiOut.innerHTML = mdLite(lastAiAnswer || "(empty response)") +
         (r.model ? `\n\n— ${r.model}` : "");
     } catch (e) { aiOut.innerHTML = `<span class="err">request failed: ${e}</span>`; }
   }
@@ -5035,12 +5928,22 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("ai-analyse").addEventListener("click", () => runAI(false));
   $("ai-ask").addEventListener("click", () => runAI(true));
   $("ai-question").addEventListener("keydown", (e) => { if (e.key === "Enter") runAI(true); });
+  if ($("ai-copy")) $("ai-copy").addEventListener("click", (e) => {
+    if (!lastAiAnswer) { aiOut.textContent = "nothing to copy yet"; return; }
+    copyText(lastAiAnswer, e.currentTarget);
+  });
+  if ($("ai-export")) $("ai-export").addEventListener("click", () => {
+    if (!lastAiAnswer) { aiOut.textContent = "nothing to export yet"; return; }
+    downloadText("dns_ai_analysis.txt",
+      `DNS AI analysis — ${new Date().toISOString()}\n\n${lastAiAnswer}\n`);
+  });
 
   /* ============================================================
      AUTO-TEST (timer-driven recurring scan)
      ============================================================ */
   const auto = {
     running: false,
+    bg: false,
     cycle: 0,
     maxCycles: 0,
     alertCount: 0,
@@ -5093,6 +5996,11 @@ _WEB_APP_JS = r"""/* ===========================================================
 
   function autoStart() {
     if (auto.running) return;
+    // Background mode is the server-side loop; don't run both timers at once.
+    if ($("auto-background") && $("auto-background").checked) {
+      autoLog("background mode is on — using the server-side loop.");
+      return;
+    }
     const cfg = autoConfig();
     auto.running = true;
     auto.cycle = 0;
@@ -5192,18 +6100,25 @@ _WEB_APP_JS = r"""/* ===========================================================
     autoCountdown(auto.interval);
   }
 
+  // The countdown is shared by the browser loop and the server-side loop, so a
+  // generation token cancels any previous ticker (a poll every 3s would
+  // otherwise leak a new ticker each time).
+  let autoCountdownGen = 0;
   function autoCountdown(seconds) {
     auto.remaining = seconds;
+    const gen = ++autoCountdownGen;
+    clearTimeout(auto.tickTimer);
     const started = Date.now();
-    const total = seconds * 1000;
+    const total = Math.max(1000, seconds * 1000);
     const step = () => {
-      if (!auto.running) return;
+      if (gen !== autoCountdownGen) return;
+      if (!auto.running && !auto.bg) return;
       const elapsed = Date.now() - started;
       const left = Math.max(0, Math.ceil((total - elapsed) / 1000));
       $("auto-countdown").textContent = left;
       $("auto-next").textContent = left + "s";
       setRing(elapsed / total);
-      if (elapsed >= total) { autoRunCycle(); return; }
+      if (elapsed >= total) { if (!auto.bg) autoRunCycle(); return; }
       auto.tickTimer = setTimeout(step, 250);
     };
     step();
@@ -5216,6 +6131,130 @@ _WEB_APP_JS = r"""/* ===========================================================
 
   $("auto-start").addEventListener("click", autoStart);
   $("auto-stop").addEventListener("click", () => autoStop("auto-test stopped."));
+
+  /* ============================================================
+     BACKGROUND AUTO-TEST (server-side, survives tab close)
+     ============================================================
+     The timer above lives in the browser and stops when the page is closed.
+     This talks to /api/autotest, which keeps cycling on the server. It can also
+     test MTU and signal strength, not just DNS. */
+  let bgPollTimer = null;
+
+  function bgConfig() {
+    const types = [];
+    if ($("auto-type-dns").checked) types.push("dns");
+    if ($("auto-type-mtu") && $("auto-type-mtu").checked) types.push("mtu");
+    if ($("auto-type-signal") && $("auto-type-signal").checked) types.push("signal");
+    return {
+      enabled: true,
+      types: types.length ? types : ["dns"],
+      interval: Math.max(5, parseInt($("auto-interval").value, 10) || 60),
+      proto: $("auto-proto").value,
+      count: parseInt($("auto-count").value, 10) || 3,
+      workers: parseInt($("auto-workers").value, 10) || 64,
+      probe: $("auto-probe").value,
+      geo: $("auto-geo").checked,
+      source: $("auto-source").value,
+      chunkSize: parseInt($("auto-chunk").value, 10) || 0,
+      rotate: $("auto-rotate").checked,
+      maxCycles: parseInt($("auto-cycles").value, 10) || 0,
+      alerts: $("auto-alert-on").checked,
+      warnLat: parseInt($("auto-warn-lat").value, 10) || 120,
+      alertJit: parseInt($("auto-alert-jit").value, 10) || 40,
+      alertLoss: parseInt($("auto-alert-loss").value, 10) || 20,
+      game: ($("tool-game") && $("tool-game").value) || "",
+      region: ($("route-region") && $("route-region").value) || "",
+    };
+  }
+
+  function applyBgConfig(cfg) {
+    if (!cfg) return;
+    if (Array.isArray(cfg.types)) {
+      $("auto-type-dns").checked = cfg.types.includes("dns");
+      if ($("auto-type-mtu")) $("auto-type-mtu").checked = cfg.types.includes("mtu");
+      if ($("auto-type-signal")) $("auto-type-signal").checked = cfg.types.includes("signal");
+    }
+    if (cfg.interval) $("auto-interval").value = cfg.interval;
+    if (cfg.proto) $("auto-proto").value = cfg.proto;
+    if (cfg.count) $("auto-count").value = cfg.count;
+    if (cfg.workers) $("auto-workers").value = cfg.workers;
+    if (cfg.probe) $("auto-probe").value = cfg.probe;
+    if (typeof cfg.geo === "boolean") $("auto-geo").checked = cfg.geo;
+    if (cfg.source) $("auto-source").value = cfg.source;
+    if (typeof cfg.chunkSize === "number") $("auto-chunk").value = cfg.chunkSize;
+    if (typeof cfg.rotate === "boolean") $("auto-rotate").checked = cfg.rotate;
+    if (typeof cfg.maxCycles === "number") $("auto-cycles").value = String(cfg.maxCycles);
+    if (typeof cfg.alerts === "boolean") $("auto-alert-on").checked = cfg.alerts;
+    if (cfg.warnLat) $("auto-warn-lat").value = cfg.warnLat;
+    if (cfg.alertJit) $("auto-alert-jit").value = cfg.alertJit;
+    if (cfg.alertLoss) $("auto-alert-loss").value = cfg.alertLoss;
+  }
+
+  function renderBgStatus(st) {
+    if (!st) return;
+    const running = st.running;
+    auto.bg = running;
+    $("auto-state").textContent = running ? "running (bg)" : "idle";
+    $("auto-state").classList.toggle("live", running);
+    if (typeof st.cycle === "number") $("auto-cycles-run").textContent = st.cycle;
+    if (typeof st.alerts === "number") $("auto-alert-count").textContent = st.alerts;
+    if (st.next_in != null) {
+      $("auto-next").textContent = st.next_in + "s";
+      autoCountdown(st.next_in);
+    }
+    const dns = st.last && st.last.dns;
+    if (dns && dns.best) $("auto-best").textContent = `${dns.best.target} ${dns.best.latency}ms`;
+    if (st.log && st.log.length) {
+      $("auto-log").innerHTML = st.log.slice(0, 40).map((l) =>
+        `<div class="auto-log-line"><span class="dim">${l.t}</span> ${l.msg}</div>`).join("");
+    }
+  }
+
+  async function bgPoll() {
+    try {
+      const st = await getJSON("/api/autotest");
+      renderBgStatus(st);
+      if (!st.running && bgPollTimer) { clearInterval(bgPollTimer); bgPollTimer = null; }
+    } catch {}
+  }
+
+  async function bgStart() {
+    // autoTargets() is null when the source is the saved server-side list.
+    const boxTargets = autoTargets();
+    const payload = { action: "start", config: bgConfig(),
+                      targets: boxTargets ? boxTargets.slice(0, 20000) : [] };
+    auto.bg = true;
+    const st = await post("/api/autotest", payload);
+    renderBgStatus(st);
+    autoLog("background auto-test started (runs on the server).");
+    if (bgPollTimer) clearInterval(bgPollTimer);
+    bgPollTimer = setInterval(bgPoll, 3000);
+  }
+
+  async function bgStop() {
+    const st = await post("/api/autotest", { action: "stop" });
+    auto.bg = false;
+    renderBgStatus(st);
+    if (bgPollTimer) { clearInterval(bgPollTimer); bgPollTimer = null; }
+  }
+
+  $("auto-start").addEventListener("click", () => {
+    if ($("auto-background") && $("auto-background").checked) bgStart();
+  });
+  $("auto-stop").addEventListener("click", () => {
+    if ($("auto-background") && $("auto-background").checked) bgStop();
+  });
+  // Restore saved background config on load (does not auto-start; the server
+  // resumes it if it was left enabled).
+  (async function initBgAuto() {
+    try {
+      const st = await getJSON("/api/autotest");
+      if (st.config) applyBgConfig(st.config);
+      if (st.running) auto.bg = true;
+      renderBgStatus(st);
+      if (st.running) bgPollTimer = setInterval(bgPoll, 3000);
+    } catch {}
+  })();
 
   /* ============================================================
      APPEARANCE (theme / colours / font) — persisted in localStorage
@@ -5529,14 +6568,23 @@ def _dns_recv_exact(sock, n):
 
 
 def _dns_query_udp(ip, packet, timeout):
-    """One UDP DNS query. Returns round-trip ms, or raises."""
+    """One UDP DNS query. Returns round-trip ms, or raises.
+
+    The socket is *connected* so the kernel discards datagrams from any other
+    source, and the reply's transaction ID is checked — otherwise a stray or
+    spoofed packet could be timed as if it were the resolver's answer."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.settimeout(timeout)
+        sock.connect((ip, 53))
         t0 = time.perf_counter()
-        sock.sendto(packet, (ip, 53))
-        sock.recvfrom(512)
-        return (time.perf_counter() - t0) * 1000
+        sock.send(packet)
+        want_id = packet[:2]
+        while True:
+            data = sock.recv(512)
+            if len(data) >= 12 and data[:2] == want_id and (data[2] & 0x80):
+                return (time.perf_counter() - t0) * 1000
+            # Ignore anything that is not a response to *this* query.
     finally:
         sock.close()
 
@@ -5671,6 +6719,269 @@ def _web_stability_snapshot(top_n=10):
 
 
 # --------------------------------------------------------------------------
+#  Auto-test engine (background, config-persistent)
+# --------------------------------------------------------------------------
+# The dashboard's auto-test runs in the browser and dies when the tab closes.
+# This server-side twin keeps cycling while the app is open (the WebView holds
+# the connection, so it works with the screen on and the app in the foreground),
+# remembers the user's settings on disk, and can test any combination of
+# DNS servers / MTU / signal strength.
+
+_AUTOTEST = {
+    "running": False,
+    "cycle": 0,
+    "offset": 0,
+    "next_run": 0.0,
+    "started": 0.0,
+    "alerts": 0,
+    "log": [],          # newest-first
+    "last": {},         # last cycle's summary
+}
+_AUTOTEST_LOCK = threading.Lock()
+_AUTOTEST_WAKE = threading.Event()
+_AUTOTEST_THREAD = None
+
+_AUTOTEST_DEFAULTS = {
+    "enabled": False,
+    "types": ["dns"],
+    "interval": 60,
+    "proto": "udp",
+    "count": 3,
+    "workers": 64,
+    "probe": "google",
+    "geo": False,
+    "source": "list",
+    "chunkSize": 0,
+    "rotate": True,
+    "maxCycles": 0,
+    "alerts": True,
+    "warnLat": 120,
+    "alertJit": 40,
+    "alertLoss": 20,
+    "game": "",
+    "region": "",
+    "gameHost": "",
+    "targets": [],
+}
+
+
+def _autotest_load_config():
+    cfg = dict(_AUTOTEST_DEFAULTS)
+    try:
+        with open(AUTOTEST_FILE, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        if isinstance(saved, dict):
+            for k, v in saved.items():
+                if k in cfg:
+                    cfg[k] = v
+    except Exception:
+        pass
+    if not isinstance(cfg.get("types"), list) or not cfg["types"]:
+        cfg["types"] = ["dns"]
+    return cfg
+
+
+def _autotest_save_config(cfg):
+    try:
+        clean = {k: cfg.get(k, v) for k, v in _AUTOTEST_DEFAULTS.items()}
+        tmp = AUTOTEST_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(clean, f)
+        os.rename(tmp, AUTOTEST_FILE)
+        return True
+    except Exception:
+        return False
+
+
+def _autotest_log(msg):
+    stamp = time.strftime("%H:%M:%S")
+    with _AUTOTEST_LOCK:
+        _AUTOTEST["log"].insert(0, {"t": stamp, "msg": msg})
+        del _AUTOTEST["log"][120:]
+
+
+def _autotest_dns_cycle(cfg):
+    """Run one DNS scan cycle (mirrors the browser auto-test's rotation)."""
+    if cfg.get("source") == "list":
+        all_targets = list(load_dns_list())
+    else:
+        all_targets = cfg.get("targets") or []
+    if not all_targets:
+        return {"type": "dns", "skipped": "no targets — save a DNS list or set the scanner box"}
+
+    chunk = max(0, int(cfg.get("chunkSize") or 0))
+    targets = all_targets
+    slice_note = ""
+    with _AUTOTEST_LOCK:
+        offset = _AUTOTEST["offset"]
+    if chunk and len(all_targets) > chunk:
+        if not cfg.get("rotate", True) or offset >= len(all_targets):
+            offset = 0
+        targets = all_targets[offset:offset + chunk]
+        if len(targets) < chunk:
+            targets = targets + all_targets[:chunk - len(targets)]
+        slice_note = f" [{offset + 1}-{offset + len(targets)} of {len(all_targets)}]"
+        with _AUTOTEST_LOCK:
+            _AUTOTEST["offset"] = (offset + chunk) % len(all_targets)
+
+    proto = cfg.get("proto", "udp")
+    count = max(1, min(10, int(cfg.get("count") or 3)))
+    timeout = 1.5
+    probe_host = _web_probe_host(cfg.get("probe") or "google")
+    workers = max(1, min(512, int(cfg.get("workers") or 64)))
+
+    _autotest_log(f"cycle scanning {len(targets)} server(s){slice_note}…")
+    _web_history_load()
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_web_ping_blocking, t, count, timeout, proto, probe_host)
+                for t in targets]
+        for t, fut in zip(targets, futs):
+            try:
+                r = fut.result()
+            except Exception:
+                r = {"latency": 9999.0, "loss": 100.0, "jitter": 999.0, "ok": False,
+                     "proto": proto, "proto_results": {}}
+            ok = r["ok"]
+            _web_fold_history(t, r["latency"] if ok else 2000.0, r["loss"], r["jitter"])
+            results.append({
+                "target": t, "latency": round(r["latency"], 1) if ok else None,
+                "loss": round(r["loss"], 1), "jitter": round(r["jitter"], 1) if ok else None,
+                "status": "ok" if ok else "fail",
+                "proto_used": next((k for k in ("udp", "tcp", "tls")
+                                    if r["proto_results"].get(k, {}).get("ok")), None),
+            })
+    _web_history_save()
+
+    ok = [r for r in results if r["status"] == "ok"]
+    best = min(ok, key=lambda r: r["latency"]) if ok else None
+    alerts = 0
+    if cfg.get("alerts", True):
+        warn_lat = float(cfg.get("warnLat") or 120)
+        alert_jit = float(cfg.get("alertJit") or 40)
+        alert_loss = float(cfg.get("alertLoss") or 20)
+        for r in results:
+            if r["status"] != "ok":
+                alerts += 1
+                _autotest_log(f"⚠ {r['target']} unreachable")
+            else:
+                if r["latency"] > warn_lat:
+                    alerts += 1
+                    _autotest_log(f"⚠ {r['target']} slow {r['latency']}ms (> {warn_lat:.0f}ms)")
+                if r["jitter"] > alert_jit:
+                    alerts += 1
+                    _autotest_log(f"⚠ {r['target']} jitter {r['jitter']}ms (> {alert_jit:.0f}ms)")
+                if r["loss"] > alert_loss:
+                    alerts += 1
+                    _autotest_log(f"⚠ {r['target']} loss {r['loss']}% (> {alert_loss:.0f}%)")
+    _autotest_log(f"{len(ok)}/{len(results)} alive" +
+                  (f", best {best['target']} {best['latency']}ms" if best else ""))
+    return {"type": "dns", "total": len(results), "ok": len(ok), "alerts": alerts,
+            "best": best, "rows": results}
+
+
+def _autotest_extra_cycle(cfg):
+    """MTU and/or signal strength — cheap checks, run every cycle when selected."""
+    out = {}
+    if "mtu" in cfg.get("types", []):
+        game = cfg.get("game") or None
+        out["mtu"] = _web_mtu_intelligence(game=game)
+        _autotest_log(f"MTU {out['mtu'].get('mtu')} ({out['mtu'].get('mode')})"
+                      + (f" · {game}" if game else ""))
+    if "signal" in cfg.get("types", []):
+        out["signal"] = _web_signal_strength()
+        s = out["signal"]
+        _autotest_log(f"signal {s.get('dbm') if s.get('dbm') is not None else 'n/a'} dBm "
+                      f"· {s.get('quality')}")
+    return out
+
+
+def _autotest_loop():
+    while True:
+        _AUTOTEST_WAKE.wait(timeout=2.0)
+        cfg = _autotest_load_config()
+        with _AUTOTEST_LOCK:
+            if not _AUTOTEST["running"]:
+                break
+            due = _AUTOTEST["next_run"]
+        if time.time() < due:
+            continue
+        with _AUTOTEST_LOCK:
+            _AUTOTEST["cycle"] += 1
+            cycle = _AUTOTEST["cycle"]
+        _autotest_log(f"cycle {cycle} started")
+        summary = {"cycle": cycle, "types": cfg.get("types", [])}
+        try:
+            if "dns" in cfg.get("types", []):
+                summary["dns"] = _autotest_dns_cycle(cfg)
+            summary.update(_autotest_extra_cycle(cfg))
+        except Exception as e:
+            _autotest_log(f"cycle error: {e}")
+            summary["error"] = str(e)
+        with _AUTOTEST_LOCK:
+            _AUTOTEST["last"] = summary
+            _AUTOTEST["alerts"] += int((summary.get("dns") or {}).get("alerts") or 0)
+            max_cycles = int(cfg.get("maxCycles") or 0)
+            if max_cycles and cycle >= max_cycles:
+                _AUTOTEST["running"] = False
+                _autotest_log(f"finished after {cycle} cycles")
+                break
+            _AUTOTEST["next_run"] = time.time() + max(5, int(cfg.get("interval") or 60))
+
+
+def _autotest_start(cfg):
+    global _AUTOTEST_THREAD
+    with _AUTOTEST_LOCK:
+        _AUTOTEST["running"] = True
+        _AUTOTEST["cycle"] = 0
+        _AUTOTEST["offset"] = 0
+        _AUTOTEST["alerts"] = 0
+        _AUTOTEST["log"] = []
+        _AUTOTEST["next_run"] = time.time()
+        _AUTOTEST["started"] = time.time()
+    if _AUTOTEST_THREAD is None or not _AUTOTEST_THREAD.is_alive():
+        _AUTOTEST_THREAD = threading.Thread(target=_autotest_loop, daemon=True,
+                                            name="dns-autotest")
+        _AUTOTEST_THREAD.start()
+    else:
+        _AUTOTEST_WAKE.set()
+    _autotest_log(f"auto-test started · {', '.join(cfg.get('types', ['dns']))} · "
+                  f"every {cfg.get('interval')}s")
+
+
+def _autotest_stop():
+    with _AUTOTEST_LOCK:
+        was = _AUTOTEST["running"]
+        _AUTOTEST["running"] = False
+    _AUTOTEST_WAKE.set()
+    if was:
+        _autotest_log("auto-test stopped")
+
+
+def _autotest_status():
+    cfg = _autotest_load_config()
+    with _AUTOTEST_LOCK:
+        st = dict(_AUTOTEST)
+    next_in = None
+    if st.get("running") and st.get("next_run"):
+        next_in = max(0, int(st["next_run"] - time.time()))
+    return {"running": st.get("running", False), "cycle": st.get("cycle", 0),
+            "alerts": st.get("alerts", 0), "next_in": next_in,
+            "log": st.get("log", [])[:80], "last": st.get("last", {}),
+            "config": cfg}
+
+
+def _autotest_autoresume():
+    """Start the background loop if the saved config had it enabled."""
+    try:
+        cfg = _autotest_load_config()
+        if cfg.get("enabled"):
+            _autotest_start(cfg)
+    except Exception:
+        pass
+
+
+# --------------------------------------------------------------------------
 #  DNS extraction from uploaded files (any text-like format)
 # --------------------------------------------------------------------------
 _IPV4_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
@@ -5747,7 +7058,6 @@ def _web_text_from_upload(data, filename):
 
     Handles UTF-8/UTF-16/Latin-1 plain text, gzip, and ZIP containers
     (.zip/.xlsx/.ods/.docx — the shared strings and inline text live inside)."""
-    low = (filename or "").lower()
     chunks = []
     if data[:4] == b"PK\x03\x04":
         try:
@@ -5848,27 +7158,99 @@ def _web_ai_analyze(api_key, model, prompt):
 
 
 def _web_build_ai_prompt(body):
-    """Turn structured scan results (or a raw prompt) into an analysis prompt."""
+    """Turn structured scan results + device context into an analysis prompt.
+
+    The AI is given everything the dashboard knows — resolvers, the egress
+    (VPN) location, the route to a game endpoint, signal strength, MTU and the
+    game's port/protocol — so its recommendation can account for all of it."""
     if body.get("prompt"):
-        return str(body["prompt"])[:20000]
+        base = str(body["prompt"])[:20000]
+    else:
+        base = ""
     rows = body.get("results") or body.get("rows") or []
-    lines = ["Here are DNS resolver benchmark results (latency/jitter/loss in ms/%):", ""]
+    lines = []
+    if base:
+        lines += [base, ""]
+    lines += ["Here are DNS resolver benchmark results (latency/jitter/loss in ms/%):", ""]
+    if not rows:
+        lines.append("(no scan results)")
     for r in rows[:200]:
         if not isinstance(r, dict):
             continue
         lat = r.get("latency")
         used = r.get("proto_used")
         tag = f" [{used}]" if used else ""
+        cc = r.get("country_name") or r.get("country") or "?"
         if lat is None:
-            lines.append(f"- {r.get('target','?')}: unreachable (loss {r.get('loss','?')}%)")
+            lines.append(f"- {r.get('target','?')} ({cc}): unreachable (loss {r.get('loss','?')}%)")
         else:
-            lines.append(f"- {r.get('target','?')}: latency {lat} ms, "
+            lines.append(f"- {r.get('target','?')} ({cc}): latency {lat} ms, "
                          f"jitter {r.get('jitter','?')} ms, loss {r.get('loss','?')}%{tag}")
-    ctx = body.get("context")
+
+    ctx = body.get("context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {"note": str(ctx)[:2000]}
     if ctx:
-        lines += ["", "Network context:", str(ctx)[:2000]]
-    lines += ["", "Recommend the best primary and backup DNS servers and why."]
+        lines += ["", "Device & route context (JSON):"]
+        try:
+            lines.append(json.dumps(ctx, ensure_ascii=False)[:6000])
+        except Exception:
+            lines.append(str(ctx)[:6000])
+
+    countries = body.get("countries") or []
+    if countries:
+        lines += ["", f"User wants resolvers from these countries only: {', '.join(map(str, countries))}."]
+
+    sort_by = body.get("sort_by")
+    if sort_by:
+        lines += ["", f"User cares most about: {sort_by}."]
+
+    lines += ["", "Recommend the best primary and backup DNS servers and why.",
+              "If the user asked about a specific game, give the UDP/TCP port(s) and "
+              "protocol to test for it, and whether the VPN/route helps or hurts ping.",
+              "Always answer with plain text. When you show a table, use simple "
+              "pipe-and-dash rows (| a | b |) with no other formatting inside cells."]
     return "\n".join(lines)
+
+
+def _web_build_game_plan_prompt(game, region=None, hint=None):
+    """Ask the AI for the ports/protocol to test for a game we may not know."""
+    lines = [
+        "You are a network engineer. For the game below, list the UDP/TCP ports and "
+        "the protocol the game client uses to reach its servers.",
+        f"Game: {game}",
+    ]
+    if region:
+        lines.append(f"Region of interest: {region}")
+    if hint:
+        lines.append(f"Extra hint from the user: {hint}")
+    lines += [
+        "",
+        "Reply with STRICT JSON only, no prose, in this exact shape:",
+        '{"ports": [1234, 5678], "protocol": "udp", "region_host": "optional.host.name", '
+        '"note": "one short sentence"}',
+        "protocol must be one of: udp, tcp, both. If unsure, use your best estimate "
+        "and say so in the note.",
+    ]
+    return "\n".join(lines)
+
+
+def _parse_json_block(text):
+    """Extract the first JSON object from an AI reply (tolerates ``` fences)."""
+    if not text:
+        return None
+    s = text.strip()
+    if s.startswith("```"):
+        s = s.split("```")[1] if "```" in s[3:] else s[3:]
+        s = s.lstrip("json").strip()
+    start = s.find("{")
+    end = s.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        return json.loads(s[start:end + 1])
+    except Exception:
+        return None
 
 
 # ---- Model catalogue (free / paid) -------------------------------------
@@ -6069,6 +7451,20 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"targets": [
                 {"key": k, "host": v[0], "label": v[1]}
                 for k, v in _WEB_PROBE_TARGETS.items()]})
+        elif route == "/api/games":
+            self._send_json({"games": game_catalog()})
+        elif route == "/api/signal":
+            self._send_json(_web_signal_strength())
+        elif route == "/api/mtu-intel":
+            game = query.get("game", [""])[0]
+            proto = query.get("protocol", [""])[0]
+            self._send_json(_web_mtu_intelligence(game=game or None,
+                                                  protocol=proto or None))
+        elif route == "/api/route":
+            host = query.get("host", ["google.com"])[0]
+            self._send_json(_web_route_analysis(host))
+        elif route == "/api/autotest":
+            self._send_json(_autotest_status())
         elif route == "/api/geo":
             ips = []
             for raw in query.get("ips", [""])[0].split(","):
@@ -6117,8 +7513,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             _web_history_save(force=True)
             self._send_json({"ok": True})
         elif route == "/api/tools/resolve":
-            host = (body.get("host") or "").strip()
-            dns = (body.get("dns") or "8.8.8.8").strip()
+            host = _web_str(body.get("host"))
+            dns = _web_str(body.get("dns")) or "8.8.8.8"
             if not host:
                 self._send_json({"error": "host required"}, 400)
                 return
@@ -6127,8 +7523,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             ms = round((time.perf_counter() - start) * 1000, 1)
             self._send_json({"host": host, "dns": dns, "ip": ip, "ms": ms, "ok": bool(ip)})
         elif route == "/api/tools/tcp":
-            host = (body.get("host") or "").strip()
-            port = int(body.get("port") or 443)
+            host = _web_str(body.get("host"))
+            port = _web_safe_port(body.get("port"))
             if not host:
                 self._send_json({"error": "host required"}, 400)
                 return
@@ -6136,8 +7532,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"host": host, "port": port, "ok": ok,
                              "ms": round(rtt, 1) if rtt else None})
         elif route == "/api/tools/tls":
-            host = (body.get("host") or "").strip()
-            port = int(body.get("port") or 443)
+            host = _web_str(body.get("host"))
+            port = _web_safe_port(body.get("port"))
             if not host:
                 self._send_json({"error": "host required"}, 400)
                 return
@@ -6145,7 +7541,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"host": host, "port": port, "ok": ok,
                              "ms": round(ms, 1) if ms else None})
         elif route == "/api/tools/http":
-            url = (body.get("url") or "").strip()
+            url = _web_str(body.get("url"))
             if not url:
                 self._send_json({"error": "url required"}, 400)
                 return
@@ -6163,6 +7559,52 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._post_import(body)
         elif route == "/api/ai/analyze":
             self._post_ai_analyze(body)
+        elif route == "/api/ai/game-plan":
+            self._post_ai_game_plan(body)
+        elif route == "/api/pairs":
+            rows = body.get("rows")
+            if not isinstance(rows, list):
+                rows = []
+            countries = body.get("countries")
+            if not isinstance(countries, list):
+                countries = []
+            try:
+                fanout = max(1, min(20, int(body.get("fanout") or 2)))
+            except (TypeError, ValueError):
+                fanout = 2
+            self._send_json(_web_recommend_pairs_filtered(rows, countries=countries,
+                                                          fanout=fanout))
+        elif route == "/api/autotest":
+            action = _web_str(body.get("action")) or "status"
+            if action == "config":
+                cfg = dict(_AUTOTEST_DEFAULTS)
+                cfg.update(body.get("config") or {})
+                if body.get("targets"):
+                    cfg["targets"] = body["targets"]
+                _autotest_save_config(cfg)
+                self._send_json({"saved": True, "config": cfg})
+            elif action == "start":
+                cfg = dict(_AUTOTEST_DEFAULTS)
+                cfg.update(body.get("config") or {})
+                if body.get("targets"):
+                    cfg["targets"] = body["targets"]
+                cfg["enabled"] = True
+                _autotest_save_config(cfg)
+                _autotest_start(cfg)
+                self._send_json(_autotest_status())
+            elif action == "stop":
+                _autotest_stop()
+                cfg = _autotest_load_config()
+                cfg["enabled"] = False
+                _autotest_save_config(cfg)
+                self._send_json(_autotest_status())
+            else:
+                self._send_json(_autotest_status())
+        elif route == "/api/route":
+            rows = body.get("rows") or []
+            host = _web_str(body.get("host")) or "google.com"
+            analysis = _web_route_analysis(host, region=body.get("region"), rows=rows)
+            self._send_json(analysis)
         else:
             self._send_json({"error": "unknown route"}, 404)
 
@@ -6195,8 +7637,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
                          "total_scanned": len(found), "bytes": len(data)})
 
     def _post_ai_analyze(self, body):
-        key = (body.get("api_key") or "").strip() or _WEB_AI_KEY
-        model = (body.get("model") or "").strip()
+        key = _web_str(body.get("api_key")) or _WEB_AI_KEY
+        model = _web_str(body.get("model"))
         if not key:
             self._send_json({"error": "OpenRouter API key required (set one in the UI or "
                                       "start with --api-key / $OPENROUTER_API_KEY)"}, 400)
@@ -6218,6 +7660,60 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._send_json({"error": f"AI request failed: {e}"}, 502)
             return
         self._send_json({"analysis": text, "model": used_model, "usage": usage})
+
+    def _post_ai_game_plan(self, body):
+        """Ask the AI for the ports/protocol to test for a game we may not know."""
+        key = _web_str(body.get("api_key")) or _WEB_AI_KEY
+        model = _web_str(body.get("model"))
+        game = _web_str(body.get("game"))
+        if not game:
+            self._send_json({"error": "game name required"}, 400)
+            return
+        # If we already know the game, answer locally and skip the API round-trip.
+        if game in GAME_PROTOCOL_DB:
+            cfg = GAME_PROTOCOL_DB[game]
+            self._send_json({"game": game, "ports": cfg.get("ports", DEFAULT_PORTS),
+                             "protocol": cfg.get("protocol", DEFAULT_PROTOCOL),
+                             "hosts": cfg.get("hosts", []),
+                             "note": cfg.get("note", ""), "source": "builtin"})
+            return
+        if not key:
+            self._send_json({"error": "OpenRouter API key required for unknown games "
+                                      "(set one in the UI or start with --api-key)"}, 400)
+            return
+        prompt = _web_build_game_plan_prompt(game, body.get("region"), body.get("hint"))
+        try:
+            text, used_model, _usage = _web_ai_analyze(key, model, prompt)
+        except urllib.error.HTTPError as e:
+            raw = ""
+            try:
+                raw = e.read().decode("utf-8", "ignore")[:600]
+            except Exception:
+                pass
+            message, hint = _web_ai_http_message(e.code, raw)
+            self._send_json({"error": message, "detail": raw, "hint": hint,
+                             "status": e.code}, 502)
+            return
+        except Exception as e:
+            self._send_json({"error": f"AI request failed: {e}"}, 502)
+            return
+        plan = _parse_json_block(text) or {}
+        ports = plan.get("ports") if isinstance(plan.get("ports"), list) else []
+        clean_ports = []
+        for p in ports:
+            try:
+                p = int(str(p).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= p <= 65535 and p not in clean_ports:
+                clean_ports.append(p)
+        ports = clean_ports[:16]
+        proto = plan.get("protocol") if plan.get("protocol") in ("udp", "tcp", "both") else "both"
+        self._send_json({"game": game, "ports": ports or DEFAULT_PORTS,
+                         "protocol": proto,
+                         "region_host": plan.get("region_host") or "",
+                         "note": plan.get("note") or text[:300],
+                         "model": used_model, "source": "ai"})
 
     def _post_dns_list(self, body):
         dns_list = list(load_dns_list())
@@ -6253,7 +7749,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
 
     def _post_tool_protocols(self, body):
         """Probe one target over UDP, TCP and DoT (TLS) side by side."""
-        host = (body.get("host") or "").strip()
+        host = _web_str(body.get("host"))
         if not host:
             self._send_json({"error": "host required"}, 400)
             return
@@ -6274,7 +7770,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
 
         Mirrors `dig @server target` — one query per selected target, using the
         resolver the user wants to test."""
-        dns_server = (body.get("dns") or body.get("server") or "1.1.1.1").strip()
+        dns_server = _web_str(body.get("dns")) or _web_str(body.get("server")) or "1.1.1.1"
         raw_targets = body.get("targets")
         if raw_targets is None:
             raw_targets = [body.get("probe") or body.get("host") or "google"]
@@ -6296,20 +7792,34 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         self._send_json({"server": dns_server, "results": results})
 
     def _post_tool_game(self, body):
-        host = (body.get("host") or "").strip()
-        game = (body.get("game") or "").strip()
+        host = _web_str(body.get("host"))
+        game = _web_str(body.get("game"))
+        port = body.get("port")
+        protocol = body.get("protocol")
+        # If no host was given, fall back to the game's own known endpoints so the
+        # test still hits something real instead of erroring out.
+        if not host and game:
+            eps = game_endpoints(game, body.get("region"))
+            host = eps[0] if eps else ""
         if not host:
-            self._send_json({"error": "host required"}, 400)
+            self._send_json({"error": "host required (or pick a game with known servers)"}, 400)
             return
         try:
             count = max(1, min(10, int(body.get("count") or 3)))
         except (TypeError, ValueError):
             count = 3
+        ports, proto = game_port_plan(game, port=port, protocol=protocol)
         start = time.perf_counter()
-        latency, loss, reachable = asyncio.run(protocol_aware_ping(host, game, count))
+        # protocol_aware_ping returns (latency_ms, loss_pct, jitter_ms); latency is
+        # None when nothing answered, which is the real reachability signal.
+        latency, loss, jitter = asyncio.run(
+            protocol_aware_ping(host, game, count, port=port, protocol=protocol))
         ms = round((time.perf_counter() - start) * 1000, 1)
-        self._send_json({"host": host, "game": game or "(generic)", "ok": bool(reachable),
-                         "latency": round(latency, 1) if latency else None,
+        self._send_json({"host": host, "game": game or "(generic)",
+                         "port": ports[0] if ports else None, "protocol": proto,
+                         "ok": latency is not None,
+                         "latency": round(latency, 1) if latency is not None else None,
+                         "jitter": round(jitter, 1) if jitter is not None else None,
                          "loss": round(loss, 1) if loss is not None else None, "ms": ms})
 
     # ---- SSE: chunked / parallel DNS scan ---------------------------------
@@ -6328,7 +7838,10 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
                 raw_list = query.get("targets", [""])[0]
             if isinstance(raw_list, str):
                 raw_list = raw_list.split(",")
-            targets = [str(t).strip() for t in raw_list if str(t).strip()]
+            elif not isinstance(raw_list, (list, tuple)):
+                raw_list = []      # JSON null / number / bool: nothing to scan
+            targets = [str(t).strip() for t in raw_list
+                       if t is not None and str(t).strip()]
         seen = set()
         targets = [t for t in targets if not (t in seen or seen.add(t))]
 
@@ -6345,7 +7858,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         workers = _int("workers", 64, 1, 512)
         chunk = _int("chunk", 100, 1, 5000)
         max_targets = _int("max", 20000, 1, 200000)
-        proto = (body.get("proto") or query.get("proto", ["udp"])[0] or "udp").lower()
+        proto = (_web_str(body.get("proto")) or query.get("proto", ["udp"])[0] or "udp").lower()
         if proto not in ("udp", "tcp", "tls", "both", "auto"):
             proto = "udp"
         try:
@@ -6628,6 +8141,10 @@ def web_console_main(argv=None):
 
     if args.background:
         args.no_open = True
+
+    # Resume a previously-saved auto-test if the user had it enabled, so the
+    # background loop keeps running without re-configuring it every time.
+    _autotest_autoresume()
 
     if not args.no_open:
         threading.Timer(0.7, lambda: _web_open_browser(url)).start()
