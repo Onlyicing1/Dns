@@ -6025,6 +6025,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   const auto = {
     running: false,
     bg: false,
+    busy: false,
     cycle: 0,
     maxCycles: 0,
     alertCount: 0,
@@ -6103,6 +6104,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   function autoStop(msg) {
     if (!auto.running) return;
     auto.running = false;
+    auto.busy = false;
     clearTimeout(auto.tickTimer);
     autoRing.classList.remove("running");
     setRing(0);
@@ -6114,6 +6116,10 @@ _WEB_APP_JS = r"""/* ===========================================================
   }
 
   async function autoRunCycle() {
+    // A countdown tick and the 3s status poll can both try to start a cycle; a
+    // second concurrent scan would double the network/CPU load for no benefit.
+    if (auto.busy) return;
+    auto.busy = true;
     const cfg = autoConfig();
     const cycleStarted = Date.now();
     auto.cycle += 1;
@@ -6129,6 +6135,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     }
     if (!all.length) {
       autoLog("no targets — set the scanner box or save a DNS list. Stopping.");
+      auto.busy = false;
       autoStop();
       return;
     }
@@ -6175,14 +6182,18 @@ _WEB_APP_JS = r"""/* ===========================================================
       $("auto-alert-count").textContent = String(auto.alertCount);
     }
 
+    auto.busy = false;
     if (auto.maxCycles && auto.cycle >= auto.maxCycles) {
       autoStop(`auto-test finished after ${auto.cycle} cycles (${auto.alertCount} alerts).`);
       return;
     }
     // Fixed cadence: subtract the scan time so the gap between cycle STARTS is the
-    // configured interval, instead of interval + however long the scan took.
+    // configured interval. When a scan outlasts the interval we must still pause a
+    // full interval before the next one -- a 0s countdown here would re-scan
+    // immediately and spin the UI thread (ANR: "app isn't responding").
     const elapsed = (Date.now() - cycleStarted) / 1000;
-    autoCountdown(Math.max(0, auto.interval - elapsed));
+    const wait = auto.interval - elapsed;
+    autoCountdown(wait > 0 ? wait : auto.interval);
   }
 
   // The countdown is shared by the browser loop and the server-side loop, so a
@@ -6203,7 +6214,15 @@ _WEB_APP_JS = r"""/* ===========================================================
       $("auto-countdown").textContent = left;
       $("auto-next").textContent = left + "s";
       setRing(total > 0 ? elapsed / total : 1);
-      if (elapsed >= total) { if (!auto.bg) autoRunCycle(); return; }
+      if (elapsed >= total) {
+        // The browser loop must never fire back-to-back cycles; a scan that
+        // overran its interval is throttled to one extra interval here.
+        if (!auto.bg) {
+          if (total <= 0) autoCountdown(auto.interval);
+          else autoRunCycle();
+        }
+        return;
+      }
       auto.tickTimer = setTimeout(step, 250);
     };
     step();
@@ -7024,10 +7043,12 @@ def _autotest_loop():
                 _autotest_log(f"finished after {cycle} cycles")
                 break
             # Fixed cadence: measure from the START of the cycle so a slow scan does
-            # not push the next run later by its own duration. If we overran by more
-            # than one interval, skip ahead instead of firing back-to-back cycles.
+            # not push the next run later by its own duration. If the cycle overran
+            # its interval, still wait a full interval before the next one -- never
+            # schedule in the past, which would fire cycles back-to-back and peg the
+            # CPU (and, via the web UI's poll, make the app look unresponsive).
             nxt = cycle_started + interval
-            if nxt < time.time() - interval:
+            if nxt <= time.time():
                 nxt = time.time() + interval
             _AUTOTEST["next_run"] = nxt
 
@@ -7475,7 +7496,7 @@ def _web_ai_models(force=False):
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.5"
+    server_version = "DnsConsole/3.6"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7520,7 +7541,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.5"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.6"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
