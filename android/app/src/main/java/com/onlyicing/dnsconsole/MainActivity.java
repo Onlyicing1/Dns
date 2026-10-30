@@ -1,6 +1,10 @@
 package com.onlyicing.dnsconsole;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -31,6 +35,35 @@ public class MainActivity extends AppCompatActivity {
     private static final String PY_MODULE = "advanced_core";
     private static final int BASE_PORT = 8765;
 
+    // Application context, so Python (running in-process via Chaquopy) can ask the
+    // platform whether a VPN is actually up. ConnectivityManager is the authoritative
+    // source; it sees VPNs that never expose a tun* interface name.
+    private static volatile Context appContext = null;
+
+    /**
+     * True if any active network reports TRANSPORT_VPN. Called from advanced_core.py
+     * through the Chaquopy Java bridge; returns false on any failure so a broken
+     * lookup can never break the app.
+     */
+    public static boolean isVpnActive() {
+        Context ctx = appContext;
+        if (ctx == null) return false;
+        try {
+            ConnectivityManager cm =
+                    (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            for (Network n : cm.getAllNetworks()) {
+                NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+                if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "isVpnActive failed", t);
+        }
+        return false;
+    }
+
     private WebView webView;
     private volatile int port = BASE_PORT;
     private volatile String serverError = null;
@@ -39,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        appContext = getApplicationContext();
 
         webView = new WebView(this);
         WebSettings s = webView.getSettings();

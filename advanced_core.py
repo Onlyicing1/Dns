@@ -1230,6 +1230,38 @@ def find_golden_mtu():
             return mtu_test
     return 1452
 
+def _default_iface_proc():
+    """Default-route interface from /proc/net/route (no privileges required).
+
+    Android may not let a plain app run `ip route`, and Shizuku is optional, so
+    this readable kernel table is a reliable last resort. The default route is
+    the row whose Destination is 0.0.0.0 (hex 00000000)."""
+    try:
+        with open("/proc/net/route", "r", encoding="utf-8", errors="ignore") as f:
+            next(f, None)  # header
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "00000000":
+                    return parts[0]
+    except Exception:
+        pass
+    return None
+
+
+def _list_interfaces():
+    """All network interface names, via stdlib and /sys (no privileges required)."""
+    names = set()
+    try:
+        names.update(name for _idx, name in socket.if_nameindex())
+    except Exception:
+        pass
+    try:
+        names.update(os.listdir("/sys/class/net"))
+    except Exception:
+        pass
+    return names
+
+
 def detect_active_interface():
     """Detects the current default-route interface from `ip route show`, which is more
     consistently supported across Android ip/toybox builds than `ip route get`. Works for a
@@ -1243,12 +1275,53 @@ def detect_active_interface():
         default_line = raw
     # ---- OPTIMIZATION: Use pre-compiled regex ----
     m = _RE_DEV.search(default_line) if default_line else None
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    # Shizuku unavailable or `ip` unsupported: fall back to the kernel route table.
+    return _default_iface_proc()
+
+_VPN_IFACE_PREFIXES = ("tun", "tap", "wg", "ppp", "utun", "ipsec", "pptp",
+                       "l2tp", "nordlynx", "proton", "tailscale", "zt")
 
 def is_vpn_interface(iface_name):
-    """WireGuard/OpenVPN-style tunnels surface as tun/wg/ppp interfaces on Android, regardless of
+    """WireGuard/OpenVPN-style tunnels surface as tun/tap/wg/ppp interfaces on Android, regardless of
     the underlying VPN protocol, since Android's VpnService exposes a TUN device."""
-    return bool(iface_name) and iface_name.startswith(("tun", "wg", "ppp"))
+    return bool(iface_name) and iface_name.startswith(_VPN_IFACE_PREFIXES)
+
+def _android_vpn_active():
+    """Ask the Android platform whether a VPN is up (Chaquopy Java bridge).
+
+    ConnectivityManager is the authoritative source: some VPNs are implemented
+    without a tun*/wg* interface name the app can see, so the platform's
+    TRANSPORT_VPN flag is checked first. Returns None when the bridge is absent
+    (desktop/Termux), so the caller falls back to interface inspection."""
+    try:
+        from java import jclass  # type: ignore
+        activity = jclass("com.onlyicing.dnsconsole.MainActivity")
+        return bool(activity.isVpnActive())
+    except Exception:
+        return None
+
+
+def detect_vpn_interface():
+    """Return a live VPN tunnel interface name, or a sentinel when only the
+    platform knows a VPN is up, else None.
+
+    Order matters: the Android platform flag is authoritative, then a real
+    tunnel interface (works on Termux and without Shizuku), then the default
+    route. None of these paths needs root."""
+    if _android_vpn_active():
+        return "vpn"
+    for name in sorted(_list_interfaces()):
+        if is_vpn_interface(name):
+            return name
+    iface = detect_active_interface()
+    if is_vpn_interface(iface):
+        return iface
+    iface = _default_iface_proc()
+    if is_vpn_interface(iface):
+        return iface
+    return None
 
 def resolve_smart_mtu():
     """
@@ -1259,6 +1332,13 @@ def resolve_smart_mtu():
     active_iface = detect_active_interface()
     if is_vpn_interface(active_iface):
         return VPN_MTU, f"VPN:{active_iface}", active_iface
+    # A tunnel is up but we could not read the default route: the traffic is
+    # almost certainly going through it, so advise the tunnel MTU.
+    if active_iface is None:
+        vpn_iface = detect_vpn_interface()
+        if vpn_iface:
+            label = "VPN" if vpn_iface == "vpn" else f"VPN:{vpn_iface}"
+            return VPN_MTU, label, vpn_iface
     return find_golden_mtu(), "CELLULAR", active_iface
 
 
@@ -2254,7 +2334,8 @@ def _web_route_analysis(game_host, region=None, rows=None):
         target_ip = game_host if _is_ip_address(game_host) else (native_dns_resolver(game_host, "8.8.8.8") or "")
     target = _web_ip_geo(target_ip) if target_ip else {}
     iface = detect_active_interface()
-    vpn = is_vpn_interface(iface)
+    vpn_iface = detect_vpn_interface()
+    vpn = bool(vpn_iface)
     dist = None
     if egress.get("lat") is not None and target.get("lat") is not None:
         dist = _haversine_km(egress["lat"], egress["lon"], target["lat"], target["lon"])
@@ -2447,7 +2528,7 @@ def _mtu_advice(mtu, vpn, protocol=None, game=None):
 
 def _web_mtu_intelligence(game=None, protocol=None):
     mtu, mode, iface = resolve_smart_mtu()
-    vpn = is_vpn_interface(iface)
+    vpn = bool(detect_vpn_interface()) or is_vpn_interface(iface)
     plan = game_port_plan(game or "", protocol=protocol) if game else ([], protocol or "")
     proto = plan[1] if game else (protocol or "")
     info = _mtu_advice(mtu, vpn, protocol=proto, game=game)
@@ -5408,7 +5489,7 @@ _WEB_APP_JS = r"""/* ===========================================================
       setCell("net-country", r.country);
       setCell("net-isp", r.isp);
       setCell("net-iface", r.interface);
-      setCell("net-vpn", r.vpn ? "yes" : "no", r.vpn ? "on" : "off");
+      setCell("net-vpn", r.vpn ? ("yes" + (r.vpn_interface ? " · " + r.vpn_interface : "")) : "no", r.vpn ? "on" : "off");
       setCell("net-mtu", `${r.mtu} (${r.mtu_mode})`);
     } catch (e) { setCell("net-ip", "error", "off"); }
   }
@@ -5425,7 +5506,7 @@ _WEB_APP_JS = r"""/* ===========================================================
       setCell("dev-operator", r.operator);
       setCell("dev-net", r.network_type);
       setCell("dev-iface", r.interface);
-      setCell("dev-vpn", r.vpn ? "yes" : "no", r.vpn ? "on" : "off");
+      setCell("dev-vpn", r.vpn ? ("yes" + (r.vpn_interface ? " · " + r.vpn_interface : "")) : "no", r.vpn ? "on" : "off");
     } catch (e) { setCell("dev-shizuku", "error", "off"); }
   }
   $("refresh-device").addEventListener("click", loadDevice);
@@ -6034,6 +6115,7 @@ _WEB_APP_JS = r"""/* ===========================================================
 
   async function autoRunCycle() {
     const cfg = autoConfig();
+    const cycleStarted = Date.now();
     auto.cycle += 1;
     $("auto-cycles-run").textContent = String(auto.cycle);
     $("auto-cycle-label").textContent = `cycle ${auto.cycle}`;
@@ -6097,7 +6179,10 @@ _WEB_APP_JS = r"""/* ===========================================================
       autoStop(`auto-test finished after ${auto.cycle} cycles (${auto.alertCount} alerts).`);
       return;
     }
-    autoCountdown(auto.interval);
+    // Fixed cadence: subtract the scan time so the gap between cycle STARTS is the
+    // configured interval, instead of interval + however long the scan took.
+    const elapsed = (Date.now() - cycleStarted) / 1000;
+    autoCountdown(Math.max(0, auto.interval - elapsed));
   }
 
   // The countdown is shared by the browser loop and the server-side loop, so a
@@ -6105,11 +6190,11 @@ _WEB_APP_JS = r"""/* ===========================================================
   // otherwise leak a new ticker each time).
   let autoCountdownGen = 0;
   function autoCountdown(seconds) {
-    auto.remaining = seconds;
+    auto.remaining = Math.max(0, seconds);
     const gen = ++autoCountdownGen;
     clearTimeout(auto.tickTimer);
     const started = Date.now();
-    const total = Math.max(1000, seconds * 1000);
+    const total = Math.max(0, seconds * 1000);
     const step = () => {
       if (gen !== autoCountdownGen) return;
       if (!auto.running && !auto.bg) return;
@@ -6117,7 +6202,7 @@ _WEB_APP_JS = r"""/* ===========================================================
       const left = Math.max(0, Math.ceil((total - elapsed) / 1000));
       $("auto-countdown").textContent = left;
       $("auto-next").textContent = left + "s";
-      setRing(elapsed / total);
+      setRing(total > 0 ? elapsed / total : 1);
       if (elapsed >= total) { if (!auto.bg) autoRunCycle(); return; }
       auto.tickTimer = setTimeout(step, 250);
     };
@@ -6507,12 +6592,14 @@ def _web_device_info():
     shizuku = is_shizuku_running()
     operator, net_type = get_live_hardware_data()
     iface = detect_active_interface()
+    vpn_iface = detect_vpn_interface()
     return {
         "shizuku": shizuku,
         "operator": operator,
         "network_type": net_type,
         "interface": iface,
-        "vpn": is_vpn_interface(iface),
+        "vpn": bool(vpn_iface) or is_vpn_interface(iface),
+        "vpn_interface": vpn_iface,
     }
 
 
@@ -6521,12 +6608,14 @@ def _web_network_info():
     ip, country, isp = analyze_gateway()
     mtu, mode, iface = resolve_smart_mtu()
     operator, net_type = get_live_hardware_data()
+    vpn_iface = detect_vpn_interface()
     return {
         "public_ip": ip,
         "country": country,
         "isp": isp,
         "interface": iface,
-        "vpn": is_vpn_interface(iface),
+        "vpn": bool(vpn_iface) or is_vpn_interface(iface),
+        "vpn_interface": vpn_iface,
         "mtu": mtu,
         "mtu_mode": mode,
         "operator": operator,
@@ -6898,14 +6987,21 @@ def _autotest_extra_cycle(cfg):
 
 def _autotest_loop():
     while True:
-        _AUTOTEST_WAKE.wait(timeout=2.0)
-        cfg = _autotest_load_config()
         with _AUTOTEST_LOCK:
             if not _AUTOTEST["running"]:
                 break
             due = _AUTOTEST["next_run"]
-        if time.time() < due:
+        # Sleep only until the next cycle is due, in short slices so a stop/start
+        # is noticed promptly. The event is CLEARED after each wait: without the
+        # clear the flag stays set, wait() returns instantly forever, and the loop
+        # spins (millions of iterations/sec) which made the interval drift.
+        remaining = due - time.time()
+        if remaining > 0:
+            _AUTOTEST_WAKE.wait(timeout=min(2.0, remaining))
+            _AUTOTEST_WAKE.clear()
             continue
+        cfg = _autotest_load_config()
+        cycle_started = time.time()
         with _AUTOTEST_LOCK:
             _AUTOTEST["cycle"] += 1
             cycle = _AUTOTEST["cycle"]
@@ -6918,6 +7014,7 @@ def _autotest_loop():
         except Exception as e:
             _autotest_log(f"cycle error: {e}")
             summary["error"] = str(e)
+        interval = max(5, int(cfg.get("interval") or 60))
         with _AUTOTEST_LOCK:
             _AUTOTEST["last"] = summary
             _AUTOTEST["alerts"] += int((summary.get("dns") or {}).get("alerts") or 0)
@@ -6926,7 +7023,13 @@ def _autotest_loop():
                 _AUTOTEST["running"] = False
                 _autotest_log(f"finished after {cycle} cycles")
                 break
-            _AUTOTEST["next_run"] = time.time() + max(5, int(cfg.get("interval") or 60))
+            # Fixed cadence: measure from the START of the cycle so a slow scan does
+            # not push the next run later by its own duration. If we overran by more
+            # than one interval, skip ahead instead of firing back-to-back cycles.
+            nxt = cycle_started + interval
+            if nxt < time.time() - interval:
+                nxt = time.time() + interval
+            _AUTOTEST["next_run"] = nxt
 
 
 def _autotest_start(cfg):
@@ -7372,7 +7475,7 @@ def _web_ai_models(force=False):
 #  HTTP handler
 # --------------------------------------------------------------------------
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.4"
+    server_version = "DnsConsole/3.5"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7417,7 +7520,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.4"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.5"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
