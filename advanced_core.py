@@ -4281,9 +4281,16 @@ body {
 
 /* ---------- background layers ---------- */
 .bg-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
-.bg-orb { position: absolute; width: 46vw; height: 46vw; border-radius: 50%; filter: blur(90px); opacity: 0.32; }
-.bg-orb.o1 { top: -12vw; left: -8vw; background: var(--acc); }
-.bg-orb.o2 { bottom: -14vw; right: -10vw; background: var(--violet); }
+/* A radial-gradient gives the same soft glow as the old filter: blur(90px) circle,
+   but without the blur. Android WebView rasterizes filter: blur in software and
+   re-blurs the whole layer on every repaint (the auto-test countdown and streaming
+   results invalidate it constantly), which saturates the renderer thread and makes
+   Android report the app as not responding. */
+.bg-orb { position: absolute; width: 46vw; height: 46vw; border-radius: 50%; opacity: 0.32; }
+.bg-orb.o1 { top: -12vw; left: -8vw;
+  background: radial-gradient(circle at center, var(--acc) 0%, transparent 68%); }
+.bg-orb.o2 { bottom: -14vw; right: -10vw;
+  background: radial-gradient(circle at center, var(--violet) 0%, transparent 68%); }
 .bg-grid {
   position: absolute; inset: 0;
   background-image:
@@ -4718,7 +4725,8 @@ textarea.targets { min-height: 78px; }
   position: fixed; inset: 0; z-index: 95;
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
-.focus-backdrop { position: absolute; inset: 0; background: rgba(4, 4, 12, 0.72); backdrop-filter: blur(5px); }
+/* backdrop-filter is likewise software-rasterized on Android WebView; the dim reads fine alone. */
+.focus-backdrop { position: absolute; inset: 0; background: rgba(4, 4, 12, 0.86); }
 .focus-frame {
   position: relative; width: min(1200px, 96vw); height: min(900px, 92vh);
   display: flex; flex-direction: column; padding: 12px;
@@ -6404,14 +6412,22 @@ _WEB_APP_JS = r"""/* ===========================================================
     clearTimeout(auto.tickTimer);
     const started = Date.now();
     const total = Math.max(0, seconds * 1000);
+    // The step still runs at 250ms so the cycle fires on time, but the DOM is only
+    // written when the displayed second actually changes. Writing the countdown and
+    // the SVG ring four times a second forced a repaint each time, which on Android
+    // keeps the renderer busy for no visible benefit.
+    let lastLeft = -1;
     const step = () => {
       if (gen !== autoCountdownGen) return;
       if (!auto.running && !auto.bg) return;
       const elapsed = Date.now() - started;
       const left = Math.max(0, Math.ceil((total - elapsed) / 1000));
-      $("auto-countdown").textContent = left;
-      $("auto-next").textContent = left + "s";
-      setRing(total > 0 ? elapsed / total : 1);
+      if (left !== lastLeft) {
+        lastLeft = left;
+        $("auto-countdown").textContent = left;
+        $("auto-next").textContent = left + "s";
+        setRing(total > 0 ? elapsed / total : 1);
+      }
       if (elapsed >= total) {
         // The browser loop must never fire back-to-back cycles; a scan that
         // overran its interval is throttled to one extra interval here.
@@ -6506,9 +6522,15 @@ _WEB_APP_JS = r"""/* ===========================================================
     }
     const dns = st.last && st.last.dns;
     if (dns && dns.best) $("auto-best").textContent = `${dns.best.target} ${dns.best.latency}ms`;
+    // Rebuilding this list every poll repainted the panel even when the server had
+    // nothing new to say. The signature check keeps an idle app from repainting.
     if (st.log && st.log.length) {
-      $("auto-log").innerHTML = st.log.slice(0, 40).map((l) =>
-        `<div class="auto-log-line"><span class="dim">${l.t}</span> ${l.msg}</div>`).join("");
+      const sig = st.log.length + "|" + st.log[0].t + "|" + st.log[0].msg;
+      if (sig !== renderBgStatus.lastSig) {
+        renderBgStatus.lastSig = sig;
+        $("auto-log").innerHTML = st.log.slice(0, 40).map((l) =>
+          `<div class="auto-log-line"><span class="dim">${l.t}</span> ${l.msg}</div>`).join("");
+      }
     }
   }
 
@@ -6722,14 +6744,37 @@ _WEB_APP_JS = r"""/* ===========================================================
     uiReport("ERROR", `ui promise rejection: ${(r && (r.message || r)) || "unknown"}`);
     flushUi();
   });
+  // 200ms, not 1000ms: an Android ANR is raised well below a full second, and the
+  // 1000ms threshold meant real blocks were never reported.
   try {
     new PerformanceObserver((l) => {
       for (const e of l.getEntries()) {
-        if (e.duration >= 1000) {
+        if (e.duration >= 200) {
           uiReport("WARNING", `main thread blocked ${Math.round(e.duration)}ms`);
         }
       }
     }).observe({ entryTypes: ["longtask"] });
+  } catch (err) {
+    uiReport("WARNING", "longtask observer unavailable: " + (err && err.message));
+  }
+  // Frames: if the renderer cannot keep up, the gap between animation frames grows
+  // even when no single task is long. That is the signature of a saturated
+  // rasterizer (large blurred layers, constant repaints) rather than of slow JS.
+  try {
+    let frames = 0, janky = 0, worst = 0, last = performance.now(), t0 = last;
+    (function loop(now) {
+      const gap = now - last; last = now;
+      if (gap > 100) { janky++; if (gap > worst) worst = Math.round(gap); }
+      frames++;
+      if (now - t0 >= 10000) {
+        if (janky) {
+          uiReport("WARNING", `slow frames: ${janky}/${frames} over 10s ` +
+                              `(worst ${worst}ms gap)`);
+        }
+        frames = 0; janky = 0; worst = 0; t0 = now;
+      }
+      requestAnimationFrame(loop);
+    })(last);
   } catch {}
   document.addEventListener("visibilitychange", () => {
     uiReport("INFO", `ui ${document.visibilityState}`);
@@ -7887,7 +7932,7 @@ class _ClientGone(Exception):
 
 
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.9"
+    server_version = "DnsConsole/4.0"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7944,7 +7989,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.9"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "4.0"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
