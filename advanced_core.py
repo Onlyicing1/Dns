@@ -3475,9 +3475,6 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0b14" />
   <title>DNS Console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
@@ -5043,20 +5040,27 @@ _WEB_APP_JS = r"""/* ===========================================================
     return sortRows(list);
   }
 
-  // Redrawing on every streamed row is fine for a handful of targets but
-  // quadratic for thousands, so coalesce redraws to one per animation frame.
-  let renderQueued = false;
+  // Redrawing on every streamed row is quadratic for large lists: filtering,
+  // sorting and rebuilding thousands of <tr> at 60fps blocks the UI thread long
+  // enough for Android to show an "isn't responding" dialog. Coalesce to a few
+  // redraws per second instead, and paint fewer rows while a scan is streaming
+  // (the full set is painted once it finishes).
+  let renderTimer = null;
+  const RENDER_INTERVAL_MS = 250;
   function renderResults() {
-    if (renderQueued) return;
-    renderQueued = true;
-    requestAnimationFrame(() => { renderQueued = false; renderResultsNow(); });
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => { renderTimer = null; renderResultsNow(); }, RENDER_INTERVAL_MS);
   }
-
   function renderResultsNow() {
+    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
     const list = visibleRows();
-    const maxLat = Math.max(...list.filter((r) => r.latency != null).map((r) => r.latency), 1);
+    // A spread over thousands of elements can also throw RangeError, so scan.
+    let maxLat = 1;
+    for (const r of list) if (r.latency != null && r.latency > maxLat) maxLat = r.latency;
     // Hard cap what we paint; the full set stays in `rows` for export/filtering.
-    const CAP = 1500;
+    // While a scan is still streaming, paint far fewer rows so each redraw stays
+    // cheap; the finished scan paints the larger cap.
+    const CAP = (runBtn && runBtn.disabled) ? 400 : 1500;
     const shown = list.length > CAP ? list.slice(0, CAP) : list;
     const frag = document.createDocumentFragment();
     shown.forEach((r, i) => {
@@ -7495,19 +7499,31 @@ def _web_ai_models(force=False):
 # --------------------------------------------------------------------------
 #  HTTP handler
 # --------------------------------------------------------------------------
+class _ClientGone(Exception):
+    """Raised internally when the SSE client has disconnected mid-stream."""
+
+
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/3.6"
+    server_version = "DnsConsole/3.7"
 
     def log_message(self, *args):  # keep the console quiet
         pass
 
+
     def _send_bytes(self, body, content_type, status=200):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        # The client may close the socket before the response is written (a page
+        # reload, a backgrounded WebView, an aborted fetch). That surfaces as a
+        # BrokenPipeError/ConnectionResetError and would otherwise dump a
+        # traceback for what is entirely normal, so swallow it quietly.
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _send_json(self, obj, status=200):
         self._send_bytes(json.dumps(obj).encode("utf-8"),
@@ -7541,7 +7557,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "3.6"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "3.7"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -8007,8 +8023,13 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
         def emit(obj):
-            self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
-            self.wfile.flush()
+            # A closed client (page reload / backgrounded WebView) must abort the
+            # stream quietly instead of raising mid-scan.
+            try:
+                self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                raise _ClientGone()
 
         try:
             _web_history_load()
@@ -8102,7 +8123,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             emit({"type": "summary", "rows": _web_stability_snapshot(top_n=25)})
             emit({"type": "done", "summary": {"total": done, "ok": ok_count,
                                               "failed": done - ok_count}})
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, _ClientGone):
             pass  # client navigated away
         except Exception as exc:  # never kill the server thread
             try:
@@ -8124,8 +8145,13 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
         def emit(obj):
-            self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
-            self.wfile.flush()
+            # A closed client (page reload / backgrounded WebView) must abort the
+            # stream quietly instead of raising mid-scan.
+            try:
+                self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                raise _ClientGone()
 
         try:
             confirmed = query.get("confirm", ["0"])[0] in ("1", "true", "yes")
@@ -8167,7 +8193,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             okc = sum(1 for r in results if r["ok"])
             emit({"type": "done", "summary": {"total": len(results), "ok": okc,
                                               "failed": len(results) - okc}})
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, _ClientGone):
             pass
         except Exception as exc:
             try:
