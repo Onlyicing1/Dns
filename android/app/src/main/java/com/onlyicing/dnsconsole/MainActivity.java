@@ -33,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private volatile int port = BASE_PORT;
-    private volatile boolean serverStarted = false;
+    private volatile String serverError = null;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -92,35 +92,49 @@ public class MainActivity extends AppCompatActivity {
             }
             port = chosen;
 
+            // launch_web_console(extra_args) takes ONE Python argument: the list of
+            // argv tokens. Chaquopy's callAttr(name, Object...) is variadic, so the
+            // array must be cast to Object to pass it as a SINGLE argument -- the old
+            // "(Object[]) new String[]{...}" splatted the flags into 5 positional args
+            // and raised TypeError, so the server never bound (ERR_CONNECTION_REFUSED).
+            // A Java String[] is converted to a Python list by Chaquopy.
+            final Object args = new String[]{
+                    "--host", "127.0.0.1",
+                    "--port", String.valueOf(port),
+                    "--no-open"};
+
             // launch_web_console() blocks in serve_forever(), so it must own its
             // own thread; this thread then waits until the port answers.
             Thread serverThread = new Thread(() -> {
                 try {
-                    module.callAttr(
-                            "launch_web_console",
-                            (Object[]) new String[]{"--host", "127.0.0.1", "--port",
-                                    String.valueOf(port), "--no-open"});
+                    module.callAttr("launch_web_console", args);
                 } catch (Throwable t) {
                     Log.e(TAG, "Python server thread exited", t);
+                    serverError = String.valueOf(t);
                 }
             }, "dns-python-server");
             serverThread.setDaemon(true);
             serverThread.start();
 
-            serverStarted = true;
             Log.i(TAG, "Python web console starting on 127.0.0.1:" + port);
             waitForServerThenLoad();
         } catch (Throwable t) {
             Log.e(TAG, "Failed to start Python server", t);
-            runOnUiThread(() -> {
-                Toast.makeText(this, "Engine failed to start: " + t.getMessage(),
-                        Toast.LENGTH_LONG).show();
-                webView.loadData("<html><body style='background:#1b0a12;color:#ff9ec0;"
-                        + "font-family:monospace;padding:24px'>Engine failed:<br>"
-                        + android.text.TextUtils.htmlEncode(String.valueOf(t))
-                        + "</body></html>", "text/html", "utf-8");
-            });
+            showEngineError(t);
         }
+    }
+
+    /** Show the failure in the WebView instead of a bare "connection refused" page. */
+    private void showEngineError(Throwable t) {
+        serverError = String.valueOf(t);
+        runOnUiThread(() -> {
+            Toast.makeText(this, "Engine failed to start: " + t.getMessage(),
+                    Toast.LENGTH_LONG).show();
+            webView.loadData("<html><body style='background:#1b0a12;color:#ff9ec0;"
+                    + "font-family:monospace;padding:24px'>Engine failed to start:<br><br>"
+                    + android.text.TextUtils.htmlEncode(String.valueOf(t))
+                    + "</body></html>", "text/html", "utf-8");
+        });
     }
 
     private void waitForServerThenLoad() {
@@ -128,6 +142,16 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < 200; i++) { // up to ~20s
             if (isReachable(url + "api/health")) {
                 runOnUiThread(() -> webView.loadUrl(url));
+                return;
+            }
+            if (serverError != null) {
+                // The engine thread died; loading the URL would only show a
+                // connection-refused page, so report the real cause instead.
+                runOnUiThread(() -> webView.loadData(
+                        "<html><body style='background:#1b0a12;color:#ff9ec0;"
+                        + "font-family:monospace;padding:24px'>Engine failed to start:<br><br>"
+                        + android.text.TextUtils.htmlEncode(serverError)
+                        + "</body></html>", "text/html", "utf-8"));
                 return;
             }
             try {
