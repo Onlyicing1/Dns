@@ -3825,7 +3825,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0b14" />
+  <meta name="theme-color" content="#0B0A10" />
   <title>DNS Console</title>
   <link rel="stylesheet" href="/app.css" />
 </head>
@@ -4346,7 +4346,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <div class="appear-block">
           <div class="appear-title">theme preset</div>
           <div class="preset-row" id="preset-row">
-            <button class="preset" data-preset="nexus">Nexus</button>
+            <button class="preset" data-preset="nexus">Bento</button>
             <button class="preset" data-preset="midnight">Midnight</button>
             <button class="preset" data-preset="matrix">Matrix</button>
             <button class="preset" data-preset="sunset">Sunset</button>
@@ -4358,10 +4358,10 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <div class="appear-block">
           <div class="appear-title">colours</div>
           <div class="color-row">
-            <label class="color-field"><span>accent</span><input type="color" id="col-accent" value="#35e6ff" /></label>
-            <label class="color-field"><span>text</span><input type="color" id="col-ink" value="#eae6ff" /></label>
-            <label class="color-field"><span>muted</span><input type="color" id="col-dim" value="#9a92c4" /></label>
-            <label class="color-field"><span>background</span><input type="color" id="col-bg" value="#08060f" /></label>
+            <label class="color-field"><span>accent</span><input type="color" id="col-accent" value="#C7F24E" /></label>
+            <label class="color-field"><span>text</span><input type="color" id="col-ink" value="#EEEAF6" /></label>
+            <label class="color-field"><span>muted</span><input type="color" id="col-dim" value="#A6A0B8" /></label>
+            <label class="color-field"><span>background</span><input type="color" id="col-bg" value="#0B0A10" /></label>
           </div>
         </div>
 
@@ -5165,6 +5165,251 @@ textarea.targets { min-height: 78px; }
 .chip-btn:hover { color: var(--ink); border-color: var(--acc); }
 .ai-helper .outbox { min-height: 64px; max-height: 340px; }
 #ai-helper-status { margin-left: auto; }
+
+/* ============================================================
+   BENTO SKIN — soft-ground board, big rounded tiles, lime primary.
+   Visual language of CluvexStudio's ZedSecure (ui/bento/*.kt):
+   BentoPalettes.BrandDark tones, BentoShapes corner scale, and a
+   floating pill dock. Only tokens and treatments change here —
+   every selector, id, class and behaviour above stays as-is, and
+   the --acc/--ink/--dim/--bg names are preserved so the Appearance
+   panel keeps overriding them.
+   ============================================================ */
+:root {
+  --ground: #0B0A10;
+  --surface: #18161F;
+  --surface2: #24212D;
+  --panel: #18161F;
+  --panel-solid: #1E1B27;
+  --line: rgba(238, 234, 246, 0.10);
+  --line-2: rgba(238, 234, 246, 0.22);
+
+  --ink: #EEEAF6;
+  --dim: #A6A0B8;
+  --dim-2: #7B7490;
+  --bg: #0B0A10;
+
+  --acc: #C7F24E;
+  /* Bento derives its "lime" from the accent seed (accent.toneColor(88)), so the
+     primary system tracks --acc: lime by default, and the Appearance panel's
+     accent/preset still recolours buttons, chips and badges. */
+  --lime: var(--acc);
+  --on-lime: #1A2200;
+  --stage: #311B6B;
+  --on-stage: #EFE8FF;
+
+  /* tonal tile tones (BentoPalettes.BrandDark) */
+  --tone-blue-c: #15294A;   --tone-blue-f: #CFE1FF;
+  --tone-violet-c: #2A2352; --tone-violet-f: #DDD5FF;
+  --tone-cyan-c: #103D3A;   --tone-cyan-f: #B3F1EC;
+  --tone-pink-c: #4A1C35;   --tone-pink-f: #FFD0E5;
+  --tone-coral-c: #4A251D;  --tone-coral-f: #FFD3C6;
+
+  --cyan: #B3F1EC; --green: #7BE495; --amber: #F2C14E;
+  --pink: #FF8A80; --violet: #DDD5FF; --blue: #CFE1FF;
+
+  --radius: 30px;          /* BentoShapes.card() */
+  --radius-sm: 16px;
+  --radius-block: 26px;
+  --radius-chip: 14px;
+  --shadow: 0 18px 44px -30px rgba(0, 0, 0, 0.95);
+
+  --display: "Google Sans", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body { background: var(--ground); }
+
+/* ambient motifs: soft stage-violet washes instead of neon orbs */
+.bg-orb { opacity: 0.5; filter: blur(46px); }
+.bg-orb.o1 { background: radial-gradient(circle, var(--stage), transparent 70%); }
+.bg-orb.o2 { background: radial-gradient(circle, var(--tone-violet-c), transparent 70%); }
+.bg-grid { opacity: 0.5; }
+.bg-layer::before { opacity: 0.4; }
+.bg-layer::after { opacity: 0.25; }
+
+/* ---------- floating header + toolbar cards ---------- */
+.topbar {
+  margin: 10px 12px 0; padding: 7px 10px 7px 14px;
+  border: 1px solid var(--line); border-radius: 22px;
+  background: var(--panel-solid); box-shadow: var(--shadow);
+}
+.brand { font-weight: 800; letter-spacing: -0.01em; }
+.brand span { color: var(--lime); font-weight: 700; }
+.brand-dot { background: var(--lime); box-shadow: 0 0 9px color-mix(in srgb, var(--lime) 70%, transparent); }
+.conn-dot.live { background: var(--lime); box-shadow: 0 0 9px var(--lime); }
+.clock, .host { color: var(--dim); }
+
+.controlbar {
+  margin: 10px 12px 0; padding: 6px 8px 6px 14px;
+  border: 1px solid var(--line); border-radius: 22px;
+  background: var(--panel-solid); box-shadow: var(--shadow);
+}
+.cb-title { letter-spacing: 0.16em; }
+.cb-count {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+  color: var(--on-lime); background: var(--lime);
+  padding: 2px 9px; border-radius: 999px;
+}
+
+/* circular icon buttons (BentoIconButton) */
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 0; background: var(--surface2); color: var(--ink);
+  transition: transform 0.16s cubic-bezier(0.34, 1.3, 0.4, 1), background 0.16s;
+}
+.icon-btn:hover { background: color-mix(in srgb, var(--surface2) 78%, var(--ink) 8%); color: var(--ink); }
+.icon-btn:active { transform: scale(0.9); }
+
+/* ---------- buttons ---------- */
+.btn {
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface2); color: var(--ink);
+  padding: 7px 15px; font-weight: 600;
+}
+.btn:hover {
+  background: color-mix(in srgb, var(--surface2) 80%, var(--ink) 6%);
+  border-color: var(--line-2);
+}
+.btn.primary {
+  background: var(--lime); color: var(--on-lime); border-color: transparent;
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--lime) 90%, transparent);
+}
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.ghost { background: transparent; color: var(--dim); }
+.btn.ghost:hover { background: color-mix(in srgb, var(--surface2) 70%, transparent); color: var(--ink); }
+.btn.danger { background: transparent; color: #FFB4AB; border-color: color-mix(in srgb, var(--pink) 38%, transparent); }
+.btn.danger:hover { background: color-mix(in srgb, var(--pink) 14%, transparent); }
+
+/* ---------- bento board ---------- */
+.deck { gap: 10px; padding: 12px 12px 14px; }
+.rail { gap: 10px; }
+
+.panel {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background:
+    radial-gradient(160px 160px at 100% 100%,
+      color-mix(in srgb, var(--pa, var(--acc)) 10%, transparent), transparent 72%),
+    var(--panel);
+  box-shadow: var(--shadow);
+}
+.panel::before { height: 2px; opacity: 0.7; }
+
+.panel-head { padding: 12px 14px; }
+.panel-head h2 { font-size: 16.5px; font-weight: 700; letter-spacing: -0.2px; }
+.idx {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--on-lime); background: var(--lime);
+  padding: 1px 7px; border-radius: 999px;
+}
+.ico-btn { border-radius: 999px; }
+
+/* ---------- form controls ---------- */
+input[type="text"], input[type="password"], input[type="number"], textarea, .sel {
+  background: var(--surface2); border: 1px solid transparent;
+  border-radius: var(--radius-sm); color: var(--ink); padding: 9px 12px;
+}
+input:focus, textarea:focus, .sel:focus {
+  border-color: color-mix(in srgb, var(--lime) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent);
+}
+.field > span { color: var(--dim-2); }
+
+/* ---------- tiles, lists, boxes ---------- */
+.metric {
+  border: 0; border-radius: 18px; background: var(--surface2);
+  padding: 10px 12px;
+}
+.metric::after { display: none; }
+.metric .m-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.metric .m-val { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--ink); }
+.metric.cyan  { background: var(--tone-blue-c); }
+.metric.cyan  .m-label { color: color-mix(in srgb, var(--tone-blue-f) 72%, transparent); }
+.metric.cyan  .m-val { color: var(--tone-blue-f); }
+.metric.green { background: color-mix(in srgb, var(--lime) 20%, var(--surface2)); }
+.metric.green .m-label { color: color-mix(in srgb, var(--lime) 70%, transparent); }
+.metric.green .m-val { color: var(--lime); }
+.metric.amber { background: var(--tone-coral-c); }
+.metric.amber .m-label { color: color-mix(in srgb, var(--tone-coral-f) 72%, transparent); }
+.metric.amber .m-val { color: var(--tone-coral-f); }
+.metric.pink  { background: var(--tone-pink-c); }
+.metric.pink  .m-label { color: color-mix(in srgb, var(--tone-pink-f) 72%, transparent); }
+.metric.pink  .m-val { color: var(--tone-pink-f); }
+
+.dev-cell, .reco-card, .reco-block {
+  border: 1px solid transparent; border-radius: 18px; background: var(--surface2);
+}
+.outbox {
+  background: color-mix(in srgb, var(--ground) 62%, transparent);
+  border: 1px solid var(--line); border-radius: 18px;
+}
+
+.list li {
+  border: 1px solid transparent; border-radius: 16px; background: var(--surface2);
+}
+.list li.cur { border-color: var(--lime); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lime) 24%, transparent); }
+.list li.ok { border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.list li.bad { border-color: color-mix(in srgb, var(--pink) 45%, transparent); }
+
+/* ---------- results table ---------- */
+.table-wrap {
+  border: 1px solid var(--line); border-radius: 20px;
+  background: color-mix(in srgb, var(--ground) 55%, transparent);
+}
+.results th { background: var(--panel-solid); color: var(--dim-2); }
+.results td { border-bottom: 1px solid var(--line); }
+.results tbody tr:hover { background: rgba(255, 255, 255, 0.035); }
+.mini-bar { background: var(--lime); }
+
+.pill { font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+.pill.ok { background: color-mix(in srgb, var(--lime) 20%, transparent); color: var(--lime); }
+.pill.warn { background: color-mix(in srgb, var(--amber) 22%, transparent); color: var(--amber); }
+.pill.fail { background: color-mix(in srgb, var(--pink) 22%, transparent); color: var(--pink); }
+.ptag { border-radius: 999px; }
+.badge { border-radius: 999px; }
+.badge.live { color: var(--lime); border-color: color-mix(in srgb, var(--lime) 42%, transparent); }
+
+/* ---------- chips / segmented / presets ---------- */
+.chip {
+  border: 1px solid var(--line); background: transparent; color: var(--dim);
+  border-radius: var(--radius-chip);
+}
+.chip:hover { color: var(--ink); border-color: var(--line-2); background: rgba(255, 255, 255, 0.04); }
+.chip.active { background: var(--lime); color: var(--on-lime); border-color: transparent; font-weight: 700; }
+
+.seg-group { border-radius: 999px; border-color: var(--line); }
+.seg.active { background: var(--lime); color: var(--on-lime); }
+.preset { border-radius: 999px; }
+.preset.active { background: var(--lime); color: var(--on-lime); }
+.chip-btn { border-radius: 999px; }
+.chip-btn:hover { border-color: var(--lime); }
+
+/* ---------- dropzone ---------- */
+.drop {
+  border: 1.5px dashed var(--line-2); border-radius: 20px; background: var(--surface2);
+}
+.drop:hover { border-color: var(--lime); background: color-mix(in srgb, var(--lime) 8%, var(--surface2)); }
+.drop.over { border-color: var(--lime); background: color-mix(in srgb, var(--lime) 14%, var(--surface2)); }
+.drop-icon { color: var(--lime); }
+.link { color: var(--lime); }
+
+/* ---------- progress + countdown ring ---------- */
+.progress { background: var(--surface2); height: 8px; }
+.progress-bar { background: linear-gradient(90deg, var(--lime), var(--tone-cyan-f)); }
+.ring-bg { stroke: rgba(255, 255, 255, 0.08); }
+.ring-fg { stroke: var(--lime); }
+.ring.running .ring-fg { stroke: var(--green); }
+
+/* ---------- drawer + overlays ---------- */
+.drawer { background: var(--panel-solid); }
+.drawer-nav a { border-radius: 14px; }
+.drawer-nav a.active { background: color-mix(in srgb, var(--lime) 16%, transparent); color: var(--ink); }
+.di { color: color-mix(in srgb, var(--lime) 70%, var(--dim-2)); }
+
+.focus-frame { border-radius: var(--radius); background: var(--panel-solid); }
+.modal-card { border-radius: 26px; }
+.prescan, .ai-helper { border-radius: 20px; }
+
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -7325,7 +7570,7 @@ _WEB_APP_JS = r"""/* ===========================================================
      ============================================================ */
   const APPEAR_KEY = "nexus_appearance";
   const PRESETS = {
-    nexus:    { accent: "#35e6ff", ink: "#eae6ff", dim: "#9a92c4", bg: "#08060f" },
+    nexus:    { accent: "#C7F24E", ink: "#EEEAF6", dim: "#A6A0B8", bg: "#0B0A10" },
     midnight: { accent: "#8b9dff", ink: "#e6e9ff", dim: "#8f97c4", bg: "#05060f" },
     matrix:   { accent: "#37ff8b", ink: "#d6ffe6", dim: "#79b894", bg: "#03080a" },
     sunset:   { accent: "#ff8a5c", ink: "#ffe9e0", dim: "#c79a8c", bg: "#120708" },

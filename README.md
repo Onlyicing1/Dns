@@ -146,6 +146,10 @@ will come up on your LAN automatically.
 - **Appearance** — six theme presets plus custom accent/text/muted/background
   colours, font family, font size, UI density and effect toggles (aurora, grid,
   scanlines, sparkles). Saved in your browser and applied instantly.
+  The default **Bento** preset is a soft-ground board of large rounded tiles
+  with a lime primary accent (the accent you pick also drives buttons, chips and
+  badges). The default preset was previously called "Nexus"; the stored theme is
+  kept per browser, so use **reset** to pick up the new look.
 
 
 Everything runs on your machine; no external services, no dependencies beyond
