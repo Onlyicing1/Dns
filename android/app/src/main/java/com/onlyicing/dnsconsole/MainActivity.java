@@ -131,7 +131,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.loadData("<html><body style='background:#0b0a16;color:#cfc9ff;"
+        // Match the Bento ground/ink the web UI uses, so the boot screen blends in.
+        webView.loadData("<html><body style='background:#0B0A10;color:#C7F24E;"
                 + "font-family:monospace;padding:24px'>Starting Python engine…</body></html>",
                 "text/html", "utf-8");
 
@@ -193,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             Toast.makeText(this, "Engine failed to start: " + t.getMessage(),
                     Toast.LENGTH_LONG).show();
-            webView.loadData("<html><body style='background:#1b0a12;color:#ff9ec0;"
+            webView.loadData("<html><body style='background:#1E1016;color:#FFB4AB;"
                     + "font-family:monospace;padding:24px'>Engine failed to start:<br><br>"
                     + android.text.TextUtils.htmlEncode(String.valueOf(t))
                     + "</body></html>", "text/html", "utf-8");
@@ -211,7 +212,7 @@ public class MainActivity extends AppCompatActivity {
                 // The engine thread died; loading the URL would only show a
                 // connection-refused page, so report the real cause instead.
                 runOnUiThread(() -> webView.loadData(
-                        "<html><body style='background:#1b0a12;color:#ff9ec0;"
+                        "<html><body style='background:#1E1016;color:#FFB4AB;"
                         + "font-family:monospace;padding:24px'>Engine failed to start:<br><br>"
                         + android.text.TextUtils.htmlEncode(serverError)
                         + "</body></html>", "text/html", "utf-8"));
