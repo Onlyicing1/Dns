@@ -12,9 +12,12 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.JsResult;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.chaquo.python.PyObject;
@@ -85,6 +88,32 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 return false; // keep everything inside the app
+            }
+        });
+        // Without a WebChromeClient, window.alert()/confirm()/prompt() return
+        // immediately and show nothing, so any JS confirm() became a silent "no".
+        // The page uses its own in-page modal for the flows it controls; this is
+        // the safety net for anything else (and for future scripts).
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsAlert(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(msg)
+                        .setPositiveButton(android.R.string.ok, (d, w) -> r.confirm())
+                        .setOnCancelListener(d -> r.cancel())
+                        .show();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView v, String url, String msg, JsResult r) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setMessage(msg)
+                        .setPositiveButton(android.R.string.ok, (d, w) -> r.confirm())
+                        .setNegativeButton(android.R.string.cancel, (d, w) -> r.cancel())
+                        .setOnCancelListener(d -> r.cancel())
+                        .show();
+                return true;
             }
         });
         setContentView(webView);

@@ -2279,9 +2279,13 @@ def _web_geo_lookup(ip, timeout=2.0, dns_server="1.1.1.1"):
     practical signal for "where does this resolver live". Cached per process."""
     if not _is_ip_address(ip) or "." not in ip:
         return {"country": "", "country_name": "", "asn": "", "org": ""}
+    # Keyed by (ip, resolver): the same IP asked of different resolvers is a
+    # different question, and _web_geo_verified relies on getting independent
+    # answers rather than the first cached one.
+    ck = (ip, dns_server)
     with _GEO_LOCK:
-        if ip in _GEO_CACHE:
-            return _GEO_CACHE[ip]
+        if ck in _GEO_CACHE:
+            return _GEO_CACHE[ck]
     rev = ".".join(reversed(ip.split(".")))
     result = {"country": "", "country_name": "", "asn": "", "org": ""}
     try:
@@ -2307,7 +2311,7 @@ def _web_geo_lookup(ip, timeout=2.0, dns_server="1.1.1.1"):
     except Exception:
         pass
     with _GEO_LOCK:
-        _GEO_CACHE[ip] = result
+        _GEO_CACHE[ck] = result
     return result
 
 
@@ -2325,6 +2329,77 @@ def _web_geo_bulk(ips, timeout=2.0, workers=16):
             except Exception:
                 out[ip] = {"country": "", "country_name": "", "asn": "", "org": ""}
     return out
+
+
+# Resolvers used to cross-check a country answer. Deliberately from different
+# operators, so one provider's stale or wrong record cannot decide the result.
+_GEO_VERIFY_RESOLVERS = ("1.1.1.1", "8.8.8.8", "9.9.9.9")
+_GEO_VERIFIED_CACHE = {}          # ip -> verified geo dict
+_GEO_VERIFY_LOCK = threading.Lock()
+_GEO_ENRICH_THREAD = None
+
+
+def _web_geo_verified(ip, attempts=3):
+    """Country for an IP, cross-checked across independent resolvers.
+
+    The stability panel shows a server's country as fact, and a single lookup can
+    be wrong or stale, so the same question is asked of several resolvers and the
+    answer only counts as *verified* when they agree. `confidence` is the share of
+    resolvers that agreed; `samples` is how many answered at all."""
+    with _GEO_VERIFY_LOCK:
+        if ip in _GEO_VERIFIED_CACHE:
+            return _GEO_VERIFIED_CACHE[ip]
+    tally = {}
+    meta = {}
+    for resolver in _GEO_VERIFY_RESOLVERS[:max(1, int(attempts))]:
+        try:
+            g = _web_geo_lookup(ip, timeout=2.0, dns_server=resolver)
+        except Exception:
+            g = {}
+        cc = (g or {}).get("country") or ""
+        if cc:
+            tally[cc] = tally.get(cc, 0) + 1
+            meta.setdefault(cc, g)
+    if not tally:
+        out = {"country": "", "country_name": "", "asn": "", "org": "",
+               "confidence": 0, "samples": 0, "verified": False}
+    else:
+        cc = max(tally, key=lambda k: (tally[k], k))
+        g = meta.get(cc, {})
+        total = sum(tally.values())
+        out = {"country": cc,
+               "country_name": g.get("country_name") or _COUNTRY_NAMES.get(cc, cc),
+               "asn": g.get("asn", ""), "org": g.get("org", ""),
+               "confidence": int(round(100.0 * tally[cc] / total)),
+               "samples": total,
+               "verified": tally[cc] == total and total >= 2}
+    with _GEO_VERIFY_LOCK:
+        _GEO_VERIFIED_CACHE[ip] = out
+    return out
+
+
+def _geo_enrich_async(ips):
+    """Fill missing country data in the background.
+
+    The stability endpoint is polled every couple of seconds; doing DNS geo
+    lookups inline would make it slow and jittery, so it returns what is cached
+    and this fills the rest for the next poll."""
+    global _GEO_ENRICH_THREAD
+    todo = [ip for ip in ips if ip and ip not in _GEO_VERIFIED_CACHE]
+    if not todo:
+        return
+    if _GEO_ENRICH_THREAD is not None and _GEO_ENRICH_THREAD.is_alive():
+        return
+
+    def run():
+        for ip in todo:
+            try:
+                _web_geo_verified(ip)
+            except Exception:
+                pass
+
+    _GEO_ENRICH_THREAD = threading.Thread(target=run, daemon=True, name="geo-enrich")
+    _GEO_ENRICH_THREAD.start()
 
 
 # ---- Probe query targets (what each test actually resolves) ----------------
@@ -3829,6 +3904,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <label class="chk"><input type="checkbox" id="auto-type-mtu" /> MTU</label>
         <label class="chk"><input type="checkbox" id="auto-type-signal" /> signal strength</label>
         <label class="chk"><input type="checkbox" id="auto-background" checked /> background (keep testing)</label>
+        <label class="chk"><input type="checkbox" id="auto-clear-stab" checked /> clear stability list each run</label>
       </div>
 
       <div class="auto-grid">
@@ -3897,6 +3973,17 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
           <div class="metric pink"><span class="m-label">alerts</span><span class="m-val" id="auto-alert-count">0</span></div>
         </div>
       </div>
+      <div class="auto-reco" id="auto-reco">
+        <div class="reco-block">
+          <div class="reco-head">MTU recommendation <span class="reco-badge" id="reco-mtu-badge">—</span></div>
+          <div class="reco-body" id="reco-mtu">run a cycle, or the MTU check in Probe Lab, to see advice here.</div>
+        </div>
+        <div class="reco-block">
+          <div class="reco-head">Signal recommendation <span class="reco-badge" id="reco-sig-badge">—</span></div>
+          <div class="reco-body" id="reco-signal">signal-strength advice appears here once a cycle runs (needs Shizuku for a real dBm reading).</div>
+        </div>
+      </div>
+
       <div class="outbox" id="auto-log">Auto-test idle. Set an interval and hit START.</div>
     </section>
 
@@ -4211,6 +4298,23 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
 
     </div>
   </main>
+
+  <!-- ---------- CONFIRM MODAL ----------
+       window.confirm()/alert()/prompt() return immediately with no dialog on Android
+       WebView unless a WebChromeClient handles them, so every confirm() in this page
+       was a silent no-op (the Clear button did nothing). This is the in-page
+       replacement: it always works, and it is styled like the rest of the app. -->
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 class="modal-title" id="modal-title">Confirm</h3>
+      <p class="modal-body" id="modal-body"></p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modal-cancel">cancel</button>
+        <button class="btn primary" id="modal-ok">continue</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ---------- FOCUS OVERLAY (single wrapper; only intercepts clicks while open) ---------- -->
   <div class="focus-overlay" id="focus-overlay" hidden>
@@ -4803,6 +4907,34 @@ textarea.targets { min-height: 78px; }
 /* ---------- logs tab ---------- */
 #logs-out { white-space: pre-wrap; word-break: break-word; }
 #logs-count { font-variant-numeric: tabular-nums; }
+
+/* ---------- confirm modal (replaces window.confirm, which is a silent no-op
+   on Android WebView without a WebChromeClient) ---------- */
+.modal-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(4, 4, 12, 0.86); }
+.modal-card {
+  position: relative; width: min(440px, 92vw);
+  background: var(--panel, #171528); border: 1px solid var(--line, #2c2947);
+  border-radius: 14px; padding: 18px 18px 14px; box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+.modal-title { margin: 0 0 8px; font-size: 15px; color: var(--text, #eae6ff); }
+.modal-body { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--dim, #a49fc8); white-space: pre-wrap; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- auto-test recommendations (MTU + signal, one place) ---------- */
+.auto-reco { display: grid; gap: 8px; margin: 10px 0 4px; }
+.reco-block { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: rgba(255,255,255,0.02); }
+.reco-head { font-size: 11.5px; font-weight: 600; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.reco-badge {
+  font-family: var(--mono); font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  background: rgba(255,255,255,0.08); color: var(--dim);
+}
+.reco-badge.ok { background: rgba(55,255,139,.14); color: var(--green); }
+.reco-badge.warn { background: rgba(255,196,0,.16); color: var(--amber, #ffc400); }
+.reco-badge.bad { background: rgba(255,80,120,.16); color: var(--pink); }
+.reco-body { font-size: 11.5px; line-height: 1.5; color: var(--dim-2); margin-top: 5px; white-space: pre-wrap; }
+.stab-item .meta.geo { color: var(--dim); }
+.stab-item .meta.geo.pending { font-style: italic; opacity: .7; }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -4843,6 +4975,38 @@ _WEB_APP_JS = r"""/* ===========================================================
   const post = (p, body) =>
     fetch(p, { method: "POST", headers: { "Content-Type": "application/json" },
                body: JSON.stringify(body) }).then((r) => r.json());
+
+  /* ---------- confirm modal ----------
+     window.confirm() does NOT show a dialog on Android WebView unless a
+     WebChromeClient implements onJsConfirm, and it then returns false silently --
+     so "Clear" appeared to do nothing. This is the in-page replacement. */
+  // True once anything has been run this session; the "clear on close" rule only
+  // applies after a run, so merely opening and closing the app never wipes history.
+  let ranSomething = false;
+  let modalResolve = null;
+  function askConfirm(message, opts) {
+    const o = opts || {};
+    return new Promise((resolve) => {
+      const overlay = $("modal-overlay");
+      $("modal-title").textContent = o.title || "Confirm";
+      $("modal-body").textContent = message;
+      $("modal-ok").textContent = o.okText || "continue";
+      $("modal-cancel").textContent = o.cancelText || "cancel";
+      overlay.hidden = false;
+      modalResolve = (v) => { overlay.hidden = true; modalResolve = null; resolve(v); };
+      $("modal-ok").focus();
+    });
+  }
+  (function wireModal() {
+    const done = (v) => { if (modalResolve) modalResolve(v); };
+    if (!$("modal-overlay")) return;
+    $("modal-ok").addEventListener("click", () => done(true));
+    $("modal-cancel").addEventListener("click", () => done(false));
+    $("modal-backdrop").addEventListener("click", () => done(false));
+    document.addEventListener("keydown", (e) => {
+      if (modalResolve && e.key === "Escape") { e.preventDefault(); done(false); }
+    });
+  })();
 
   /* ============================================================
      NAV DRAWER (burger)
@@ -5374,7 +5538,18 @@ _WEB_APP_JS = r"""/* ===========================================================
     }
   }
 
-  runBtn.addEventListener("click", runScan);
+  runBtn.addEventListener("click", () => {
+    // A plain manual scan. The auto-test drives its own scans with silent:true, so
+    // reaching here means this is a user-initiated run.
+    ranSomething = true;
+    const p = runScan();
+    if (p && p.then) p.then(() => {
+      if (!auto.running && !auto.bg) {
+        autoClearStability("scan finished");
+        refreshStabilitySoon();
+      }
+    });
+  });
   $("clear-targets").addEventListener("click", () => { targetsBox.value = ""; targetsBox.focus(); });
   $("filter").addEventListener("input", renderResults);
   $("only-ok").addEventListener("change", renderResults);
@@ -5487,7 +5662,12 @@ _WEB_APP_JS = r"""/* ===========================================================
   /* ============================================================
      STABILITY
      ============================================================ */
+  let lastStabSig = null;
   function renderStability(list) {
+    // Record the signature so the poll below can skip a repaint when nothing
+    // changed; a needless innerHTML write every 3s is exactly the kind of repaint
+    // that was saturating the renderer.
+    lastStabSig = JSON.stringify(list || []);
     const box = $("stab-list");
     box.innerHTML = "";
     if (!list || !list.length) {
@@ -5500,6 +5680,20 @@ _WEB_APP_JS = r"""/* ===========================================================
       left.appendChild(el("div", "ip", r.target));
       left.appendChild(el("div", "meta",
         `${r.success_rate}% success · ${r.cycles} cycles · ${r.spikes} spikes · avg ${r.avg}ms`));
+      // Country, cross-checked across independent resolvers on the server. While
+      // the lookups are still in flight the row says so instead of staying blank.
+      const geo = el("div", "meta geo");
+      if (r.country) {
+        const bits = [`${r.country_name || r.country} (${r.country})`];
+        if (r.asn) bits.push("AS" + r.asn);
+        if (r.geo_verified) bits.push(`verified ${r.geo_samples}/${r.geo_samples}`);
+        else if (r.geo_samples) bits.push(`${r.geo_confidence}% of ${r.geo_samples} agree`);
+        geo.textContent = bits.join(" · ");
+      } else {
+        geo.textContent = "country: locating…";
+        geo.classList.add("pending");
+      }
+      left.appendChild(geo);
       const score = el("div", "stab-score", r.score);
       const track = el("div", "stab-track");
       const fill = el("div", "stab-fill");
@@ -5510,17 +5704,68 @@ _WEB_APP_JS = r"""/* ===========================================================
     });
   }
 
+  let stabLoading = false;
   async function loadStability() {
-    const r = await getJSON("/api/stability");
-    renderStability(r.rows);
+    if (stabLoading) return;
+    stabLoading = true;
+    try {
+      const r = await getJSON("/api/stability");
+      if (JSON.stringify(r.rows || []) !== lastStabSig) renderStability(r.rows);
+    } catch {} finally { stabLoading = false; }
   }
+  // Coalesce bursts of "something changed" into one refresh.
+  let stabSoon = null;
+  function refreshStabilitySoon() {
+    if (stabSoon) return;
+    stabSoon = setTimeout(() => { stabSoon = null; loadStability(); }, 250);
+  }
+
+  function stabilityPanelOpen() {
+    const p = $("panel-stability");
+    if (!p || p.classList.contains("collapsed")) return false;
+    // A focused card is moved into the overlay, so check that too.
+    return !focusedPanel || focusedPanel === p || p.offsetParent !== null;
+  }
+
+  // The panel used to update only on load and on the refresh button, so it looked
+  // frozen. Poll while it is on screen, and also refresh the moment it is opened.
+  let stabPoll = null;
+  function startStabPoll() {
+    if (stabPoll) return;
+    stabPoll = setInterval(() => { if (stabilityPanelOpen()) loadStability(); }, 3000);
+  }
+  function stopStabPoll() {
+    if (stabPoll) { clearInterval(stabPoll); stabPoll = null; }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopStabPoll();
+    else { startStabPoll(); if (stabilityPanelOpen()) loadStability(); }
+  });
+
   $("refresh-stab").addEventListener("click", loadStability);
   $("clear-history").addEventListener("click", async () => {
-    if (!confirm("Clear all stability history (this session and saved)?")) return;
+    if (!(await askConfirm("Clear all stability history (this session and saved)?",
+                           { title: "Clear stability", okText: "clear" }))) return;
     await post("/api/history/clear", {});
     loadStability();
   });
   loadStability();
+  startStabPoll();
+
+  // Called when a run ends (a scan completes, or the auto-test is stopped) so the
+  // list starts empty for the next run unless the user turns the toggle off.
+  async function autoClearStability(reason) {
+    if (!autoClearOnRunEnd()) return;
+    try {
+      await post("/api/history/clear", {});
+      if (typeof pushLog === "function") pushLog(`stability list auto-cleared (${reason})`);
+    } catch {}
+    loadStability();
+  }
+  function autoClearOnRunEnd() {
+    const cb = $("auto-clear-stab");
+    return cb ? cb.checked : true;
+  }
 
   /* ============================================================
      SAVED DNS
@@ -5565,8 +5810,11 @@ _WEB_APP_JS = r"""/* ===========================================================
     const items = $("bulk-dns").value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
     if (items.length) { mutateList({ add: items }); $("bulk-dns").value = ""; }
   });
-  $("clear-dns").addEventListener("click", () => {
-    if (confirm("Remove every saved DNS entry?")) mutateList({ clear: true });
+  $("clear-dns").addEventListener("click", async () => {
+    if (await askConfirm("Remove every saved DNS entry?",
+                         { title: "Clear saved DNS", okText: "remove all" })) {
+      mutateList({ clear: true });
+    }
   });
   loadDnsList();
 
@@ -5812,8 +6060,9 @@ _WEB_APP_JS = r"""/* ===========================================================
   $("refresh-apn").addEventListener("click", loadApn);
   loadApn();
 
-  $("apn-bench").addEventListener("click", () => {
-    if (!confirm("This switches the preferred APN to test each one, then restores it.\nContinue?")) return;
+  $("apn-bench").addEventListener("click", async () => {
+    if (!(await askConfirm("This switches the preferred APN to test each one, then restores it.",
+                           { title: "Benchmark APNs", okText: "continue" }))) return;
     apnOut.textContent = "benchmarking… (radio cooldown between switches)";
     apnList.querySelectorAll("li").forEach((li) => li.classList.remove("ok", "bad"));
     const es = new EventSource("/api/apn/benchmark?confirm=1");
@@ -6283,6 +6532,7 @@ _WEB_APP_JS = r"""/* ===========================================================
   }
 
   function autoStart() {
+    ranSomething = true;
     if (auto.running) return;
     // Background mode is the server-side loop; don't run both timers at once.
     if ($("auto-background") && $("auto-background").checked) {
@@ -6319,6 +6569,7 @@ _WEB_APP_JS = r"""/* ===========================================================
     $("auto-state").classList.remove("live");
     $("auto-next").textContent = "—";
     if (msg) autoLog(msg);
+    autoClearStability("stopped");
   }
 
   async function autoRunCycle() {
@@ -6508,6 +6759,39 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (cfg.alertLoss) $("auto-alert-loss").value = cfg.alertLoss;
   }
 
+  function recoBadge(id, text, cls) {
+    const b = $(id); if (!b) return;
+    b.textContent = text;
+    b.className = "reco-badge" + (cls ? " " + cls : "");
+  }
+
+  // MTU + signal recommendations, shown in their own section of the test panel so
+  // the user can act on everything from one place.
+  function renderAutoReco(mtu, signal) {
+    if (mtu) {
+      const box = $("reco-mtu");
+      if (box) box.textContent = mtu.advice || "no advice available";
+      recoBadge("reco-mtu-badge", mtu.mtu ? `${mtu.mtu} MTU` : "—", mtu.vpn ? "warn" : "ok");
+    }
+    if (signal) {
+      const box = $("reco-signal");
+      if (box) box.textContent = signal.recommendation || "no advice available";
+      const q = signal.quality || "unknown";
+      const cls = (q === "excellent" || q === "good") ? "ok"
+                : q === "fair" ? "warn" : q === "unknown" ? "" : "bad";
+      recoBadge("reco-sig-badge",
+                (signal.dbm != null ? `${signal.dbm} dBm · ` : "") + q, cls);
+    }
+  }
+
+  async function loadAutoReco() {
+    // Fetched directly so the section fills even when the last cycle did not run
+    // these checks (they are optional types in the config).
+    const game = ($("tool-game") && $("tool-game").value) || "";
+    try { renderAutoReco(await getJSON(`/api/mtu-intel?game=${encodeURIComponent(game)}`), null); } catch {}
+    try { renderAutoReco(null, await getJSON("/api/signal")); } catch {}
+  }
+
   function renderBgStatus(st) {
     if (!st) return;
     const running = st.running;
@@ -6522,6 +6806,8 @@ _WEB_APP_JS = r"""/* ===========================================================
     }
     const dns = st.last && st.last.dns;
     if (dns && dns.best) $("auto-best").textContent = `${dns.best.target} ${dns.best.latency}ms`;
+    if (st.last && st.last.mtu) renderAutoReco(st.last.mtu, null);
+    if (st.last && st.last.signal) renderAutoReco(null, st.last.signal);
     // Rebuilding this list every poll repainted the panel even when the server had
     // nothing new to say. The signature check keeps an idle app from repainting.
     if (st.log && st.log.length) {
@@ -6538,11 +6824,25 @@ _WEB_APP_JS = r"""/* ===========================================================
     try {
       const st = await getJSON("/api/autotest");
       renderBgStatus(st);
-      if (!st.running && bgPollTimer) { clearInterval(bgPollTimer); bgPollTimer = null; }
+      // "Every cycle should update the panel": when the server reports a new
+      // cycle number, pull the stability ranking again so the panel tracks it.
+      if (st && st.running && typeof st.cycle === "number" &&
+          st.cycle !== bgPoll.lastCycle) {
+        bgPoll.lastCycle = st.cycle;
+        refreshStabilitySoon();
+        loadAutoReco();
+      }
+      if (!st.running && bgPollTimer) {
+        clearInterval(bgPollTimer); bgPollTimer = null;
+        // The run ended (all cycles done, or stopped elsewhere): clear per policy.
+        autoClearStability("auto-test finished");
+      }
     } catch {}
   }
+  bgPoll.lastCycle = null;
 
   async function bgStart() {
+    ranSomething = true;
     // autoTargets() is null when the source is the saved server-side list.
     const boxTargets = autoTargets();
     const payload = { action: "start", config: bgConfig(),
@@ -6560,6 +6860,8 @@ _WEB_APP_JS = r"""/* ===========================================================
     auto.bg = false;
     renderBgStatus(st);
     if (bgPollTimer) { clearInterval(bgPollTimer); bgPollTimer = null; }
+    // "when the user presses stop … it should auto clear the list"
+    autoClearStability("stopped");
   }
 
   $("auto-start").addEventListener("click", () => {
@@ -6578,7 +6880,30 @@ _WEB_APP_JS = r"""/* ===========================================================
       renderBgStatus(st);
       if (st.running) bgPollTimer = setInterval(bgPoll, 3000);
     } catch {}
+    loadAutoReco();
   })();
+
+  /* When the app is closed after the auto-test has been stopped, clear the list.
+     pagehide is the only reliable "the app is going away" signal in a WebView, and
+     fetch() may be cut off, so sendBeacon is used when the browser offers it.
+     The clear is also requested server-side, so it still happens even if this
+     page never comes back. */
+  window.addEventListener("pagehide", () => {
+    // "test finished, or the user pressed stop and closed the app" -> clear. A
+    // running test is left alone: its own end-of-run clear handles it.
+    if (!autoClearOnRunEnd() || !ranSomething) return;
+    if (typeof auto !== "undefined" && (auto.bg || auto.running)) return;
+    const body = JSON.stringify({});
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/history/clear",
+                             new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/api/history/clear", { method: "POST", keepalive: true,
+              headers: { "Content-Type": "application/json" }, body });
+      }
+    } catch {}
+  });
 
   /* ============================================================
      APPEARANCE (theme / colours / font) — persisted in localStorage
@@ -7237,6 +7562,11 @@ def _web_stability_snapshot(top_n=10):
         rows = []
         for dns_ip, rec in _WEB_HISTORY.items():
             score, success_rate, spike_ratio = compute_stability_score(rec, fastest)
+            # Country is filled in from the verified cache when available; the
+            # first poll after a scan may not have it yet, so the row renders
+            # without it and gains it on a later poll.
+            with _GEO_VERIFY_LOCK:
+                geo = dict(_GEO_VERIFIED_CACHE.get(dns_ip) or {})
             rows.append({
                 "target": dns_ip,
                 "cycles": rec["cycles"],
@@ -7245,9 +7575,19 @@ def _web_stability_snapshot(top_n=10):
                 "spikes": rec["jitter_spike_cycles"],
                 "avg": round(rec["latency_sum"] / rec["cycles"], 1),
                 "status": stability_status_label(score, success_rate, spike_ratio),
+                "country": geo.get("country", ""),
+                "country_name": geo.get("country_name", ""),
+                "asn": geo.get("asn", ""),
+                "org": geo.get("org", ""),
+                "geo_confidence": geo.get("confidence", 0),
+                "geo_samples": geo.get("samples", 0),
+                "geo_verified": bool(geo.get("verified")),
             })
         rows.sort(key=lambda r: r["score"], reverse=True)
-        return rows[:top_n]
+        rows = rows[:top_n]
+    # Kick off lookups for anything still unknown, so the next poll has it.
+    _geo_enrich_async([r["target"] for r in rows if not r.get("country")])
+    return rows
 
 
 # --------------------------------------------------------------------------
@@ -7932,7 +8272,7 @@ class _ClientGone(Exception):
 
 
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/4.0"
+    server_version = "DnsConsole/4.1"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -7989,7 +8329,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "4.0"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "4.1"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
