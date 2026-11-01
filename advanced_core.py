@@ -2272,11 +2272,19 @@ def _web_dig(host, dns_server, qtype=1, timeout=2.0):
 
 
 def _web_geo_lookup(ip, timeout=2.0, dns_server="1.1.1.1"):
-    """Geo/ASN lookup for an IP via Team Cymru's DNS service.
+    """Geo/ASN lookup for an IP, with two independent paths.
 
-    Query ``<reversed-ip>.origin.asn.cymru.com`` TXT → "ASN | prefix | CC |
-    registry | allocated". Country = the IP's registration country, which is the
-    practical signal for "where does this resolver live". Cached per process."""
+    Primary: Team Cymru's DNS service — query
+    ``<reversed-ip>.origin.asn.cymru.com`` TXT → "ASN | prefix | CC | registry |
+    allocated". Country = the IP's registration country, the practical signal for
+    "where does this resolver live".
+
+    Fallback: ip-api over HTTP. The DNS path needs UDP/53 to a public resolver,
+    which many mobile carriers block (or silently drop) — that is why a bulk scan
+    on a phone showed every country as unknown while the same scan worked on
+    Wi-Fi/desktop. The HTTP path is used whenever DNS yields no country.
+
+    Cached per process, keyed by (ip, resolver)."""
     if not _is_ip_address(ip) or "." not in ip:
         return {"country": "", "country_name": "", "asn": "", "org": ""}
     # Keyed by (ip, resolver): the same IP asked of different resolvers is a
@@ -2310,9 +2318,119 @@ def _web_geo_lookup(ip, timeout=2.0, dns_server="1.1.1.1"):
                     break
     except Exception:
         pass
+    if not result["country"]:
+        fb = _web_geo_lookup_http(ip, timeout=timeout)
+        if fb.get("country"):
+            result = fb
     with _GEO_LOCK:
         _GEO_CACHE[ck] = result
     return result
+
+
+def _web_geo_lookup_http(ip, timeout=3.0):
+    """Geo/ASN fallback for one IP via ip-api (HTTP). Returns the same shape as
+    _web_geo_lookup, or an empty record when it cannot be resolved."""
+    out = {"country": "", "country_name": "", "asn": "", "org": ""}
+    try:
+        url = ("http://ip-api.com/json/" + urllib.parse.quote(ip) +
+               "?fields=status,country,countryCode,as,org")
+        req = urllib.request.Request(url, headers={"User-Agent": _WEB_UA})
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            data = json.loads(res.read().decode("utf-8", "ignore"))
+        if data.get("status") != "success":
+            return out
+        cc = (data.get("countryCode") or "").upper()
+        out["country"] = cc
+        out["country_name"] = data.get("country") or _COUNTRY_NAMES.get(cc, cc)
+        asn = data.get("as") or ""
+        if asn.upper().startswith("AS"):
+            asn = asn[2:].split()[0]
+        out["asn"] = asn
+        out["org"] = data.get("org") or data.get("as") or ""
+    except Exception:
+        pass
+    return out
+
+
+def _parse_cidrs(text):
+    """Parse a comma/space/newline separated list of CIDRs or single IPs into
+    ipaddress networks. Bare IPs become /32 (or /128). Bad entries are skipped
+    rather than aborting the whole filter."""
+    import ipaddress
+    nets = []
+    if not text:
+        return nets
+    for chunk in re.split(r"[\s,;]+", str(text).strip()):
+        if not chunk:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(chunk, strict=False))
+        except Exception:
+            continue
+    return nets
+
+
+def _ip_in_any(ip, nets):
+    import ipaddress
+    if not nets:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except Exception:
+        return False
+    for n in nets:
+        try:
+            if addr.version == n.version and addr in n:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _filter_targets(targets, countries=None, cidrs=None, timeout=2.0, workers=24):
+    """Narrow a target list BEFORE scanning it.
+
+    `cidrs` is applied locally and instantly. `countries` needs a geo lookup per
+    target, which is the slow part, so it is bounded in parallel and returns how
+    many were dropped for each reason. Returns
+    {"targets": [...], "dropped_range": n, "dropped_country": n,
+     "geo": {ip: {...}}, "scanned": n}."""
+    targets = [str(t).strip() for t in (targets or []) if str(t).strip()]
+    nets = _parse_cidrs(cidrs)
+    # A hostname target cannot be range-filtered, so only literal IPs are tested.
+    def is_ip(t):
+        return bool(_is_ip_address(t)) and "." in t
+    kept, dropped_range = [], 0
+    for t in targets:
+        if nets and is_ip(t) and not _ip_in_any(t, nets):
+            dropped_range += 1
+            continue
+        kept.append(t)
+    wanted = {c.strip().upper() for c in (countries or []) if c and c.strip()}
+    if not wanted:
+        return {"targets": kept, "dropped_range": dropped_range,
+                "dropped_country": 0, "geo": {}, "scanned": len(targets)}
+    ip_targets = [t for t in kept if is_ip(t)]
+    geo = _web_geo_bulk(ip_targets, timeout=timeout, workers=workers)
+    out, dropped_country = [], 0
+    for t in kept:
+        if not is_ip(t):
+            out.append(t)          # keep hostnames; country is unknown for them
+            continue
+        cc = (geo.get(t) or {}).get("country") or ""
+        if cc.upper() in wanted:
+            out.append(t)
+        else:
+            dropped_country += 1
+    return {"targets": out, "dropped_range": dropped_range,
+            "dropped_country": dropped_country, "geo": geo,
+            "scanned": len(targets)}
+
+
+def _web_country_list():
+    """Every country the app can name, for the filter dropdowns."""
+    return [{"code": cc, "name": name}
+            for cc, name in sorted(_COUNTRY_NAMES.items(), key=lambda kv: kv[1])]
 
 
 def _web_geo_bulk(ips, timeout=2.0, workers=16):
@@ -3789,6 +3907,26 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <textarea id="targets" class="bulk targets" spellcheck="false"
         placeholder="Paste DNS servers — one per line or comma separated&#10;8.8.8.8, 1.1.1.1, 9.9.9.9, 8.8.4.4, dns.google&#10;Handles thousands of entries."></textarea>
 
+      <details class="prescan" id="prescan">
+        <summary><span class="ps-title">Pre-scan filters</span>
+          <span class="ps-note" id="prescan-note">optional — narrow the list before scanning</span></summary>
+        <div class="ps-grid">
+          <label class="field"><span>only these countries</span>
+            <div class="country-pick">
+              <select id="scan-country" class="sel">
+                <option value="">any country</option>
+              </select>
+              <button class="btn ghost tiny" id="scan-country-add" type="button" title="add this country to the filter">+</button>
+            </div>
+          </label>
+          <label class="field"><span>only IPs in range (CIDR)</span>
+            <input type="text" id="scan-range" placeholder="e.g. 8.8.8.0/24, 1.1.1.0/24, 2001:4860::/32" spellcheck="false" />
+          </label>
+        </div>
+        <div class="chips" id="scan-country-chips"></div>
+        <p class="hint">Country filtering looks each IP up first (a few seconds for large lists); the range filter is instant. Targets that don't match are skipped before any latency test runs.</p>
+      </details>
+
       <div class="controls">
         <label class="field"><span>packets</span><input type="number" id="count" min="1" max="10" value="3" /></label>
         <label class="field"><span>workers</span><input type="number" id="workers" min="1" max="512" value="64" /></label>
@@ -3806,7 +3944,7 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <label class="field"><span>probe target</span>
           <select id="probe" class="sel"><option value="google">google.com</option></select>
         </label>
-        <label class="chk"><input type="checkbox" id="geo" /> geo-locate</label>
+        <label class="chk"><input type="checkbox" id="geo" checked /> geo-locate</label>
         <button class="btn primary" id="run"><span class="run-label">RUN SCAN</span></button>
       </div>
 
@@ -3825,8 +3963,12 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
       <div class="table-tools">
         <input type="text" id="filter" placeholder="filter results (ip, status…)" spellcheck="false" />
         <label class="field"><span>country</span>
-          <input type="text" id="country-filter" placeholder="e.g. DE, NL, US" spellcheck="false" style="width:120px" />
+          <div class="country-pick">
+            <input type="text" id="country-filter" placeholder="any" spellcheck="false" list="country-options" />
+            <button class="btn ghost tiny" id="country-filter-pick" type="button" title="pick a country from the list">▾</button>
+          </div>
         </label>
+        <datalist id="country-options"></datalist>
         <label class="field"><span>sort by</span>
           <select id="sort-by" class="sel">
             <option value="latency">lowest latency</option>
@@ -3860,6 +4002,30 @@ _WEB_INDEX_HTML = r"""<!DOCTYPE html>
         <button class="btn ghost small" id="copy-results">copy results</button>
         <button class="btn ghost small" id="export-txt">export TXT</button>
       </div>
+
+      <details class="ai-helper" id="ai-helper">
+        <summary><span class="ps-title">AI helper</span>
+          <span class="ps-note" id="ai-helper-note">explain these results and tell me what to do</span></summary>
+        <div class="ai-helper-body">
+          <div class="tool-row">
+            <input type="text" id="ai-helper-q" spellcheck="false"
+              placeholder="ask anything — e.g. which of these is best for gaming, or why is 8.8.8.8 slow?" />
+            <button class="btn primary small" id="ai-helper-go">ask</button>
+          </div>
+          <div class="quick-asks">
+            <button class="chip-btn" data-q="Which resolver should I use as my primary and why?">best pick</button>
+            <button class="chip-btn" data-q="Which are best for gaming (lowest jitter and loss) and which should I avoid?">for gaming</button>
+            <button class="chip-btn" data-q="Explain the trade-offs between the fastest and the most reliable servers here.">trade-offs</button>
+            <button class="chip-btn" data-q="Suggest a diverse primary/backup pair in different countries.">diverse pair</button>
+            <button class="chip-btn" data-q="What looks wrong or risky in these results, and what should I check next?">what's wrong?</button>
+          </div>
+          <div class="outbox" id="ai-helper-out">Run a scan, then ask a question — the AI sees the results, your route, signal and MTU.</div>
+          <div class="export-row">
+            <button class="btn ghost small" id="ai-helper-copy">copy answer</button>
+            <span class="ps-note" id="ai-helper-status"></span>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- 02 AUTO-TEST -->
@@ -4552,15 +4718,17 @@ body.no-sparkles .bg-layer::after { display: none; }
 .panel.collapsed .chev { transform: rotate(-90deg); }
 
 /* collapsible body: grid-template-rows 1fr -> 0fr (grows to content, never clips) */
-.panel-body { display: grid; grid-template-rows: 1fr; min-height: 0; transition: grid-template-rows 0.26s ease; }
+.panel-body { display: grid; grid-template-rows: 1fr; grid-template-columns: minmax(0, 1fr); min-height: 0; transition: grid-template-rows 0.26s ease; }
 .panel-body-inner {
   min-height: 0; overflow: auto; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 10px;
   transition: opacity 0.18s;
 }
-/* In the Scanner, the body itself does not scroll — only the results table
-   does, so a stray scroll can never push the results out of view. */
-#panel-scanner > .panel-body > .panel-body-inner { overflow: hidden; }
+/* The Scanner body scrolls on small screens: with the whole panel capped by the
+   viewport, an overflow:hidden body clipped the controls and the export row so
+   they could not be reached at all. The table keeps its own scroller and a floor,
+   so results stay the visual focus; only the outer body scrolls when it must. */
+#panel-scanner > .panel-body > .panel-body-inner { overflow-y: auto; }
 .panel.collapsed .panel-body { grid-template-rows: 0fr; }
 .panel.collapsed .panel-body-inner { opacity: 0; pointer-events: none; }
 
@@ -4593,7 +4761,8 @@ input:focus, textarea:focus, .sel:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 18%, transparent);
 }
 .sel { cursor: pointer; }
-textarea.bulk { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; min-height: 62px; }
+textarea.bulk { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; min-height: 62px; width: 100%; max-width: 100%; }
+.panel-body-inner > * { min-width: 0; max-width: 100%; }
 textarea.targets { min-height: 78px; }
 
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--dim-2); min-width: 0; }
@@ -4611,8 +4780,8 @@ textarea.targets { min-height: 78px; }
 .add-row input { flex: 1; min-width: 100px; }
 .tool-row .field { flex: 1; min-width: 120px; }
 
-.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-.controls .field { width: 92px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
+.controls .field { width: 92px; min-width: 0; }
 .controls #run { margin-left: auto; }
 
 /* ---------- output box ---------- */
@@ -4652,8 +4821,11 @@ textarea.targets { min-height: 78px; }
 .metric.pink { --mc: var(--pink); }
 
 /* ---------- results table (plain + minimal) ---------- */
-.table-tools { display: flex; gap: 10px; align-items: center; flex: 0 0 auto; }
-.table-tools input[type="text"] { flex: 1; }
+.table-tools { display: flex; gap: 8px 10px; align-items: center; flex: 0 0 auto; flex-wrap: wrap; }
+.table-tools > * { min-width: 0; }
+.table-tools input[type="text"] { flex: 1 1 140px; }
+.table-tools .field { flex: 0 1 auto; }
+.table-tools #country-filter { width: auto; min-width: 128px; max-width: 190px; flex: 0 1 160px; }
 /* The results are the point of the panel: give them a guaranteed floor so they
    can never be squeezed to nothing, and let only this box scroll. */
 .table-wrap {
@@ -4887,15 +5059,28 @@ textarea.targets { min-height: 78px; }
     display: flex; flex-direction: column; height: auto; overflow: visible;
     padding: 10px;
   }
-  .deck > #panel-scanner { min-height: 460px; }
+  .deck > #panel-scanner { min-height: 0; }
   .rail { overflow: visible; }
   .rail > .panel > .panel-body > .panel-body-inner { max-height: none; }
-  .panel { min-height: 240px; }
+  .panel { min-height: 0; }
+  /* Stacked layout: the page is the scroller, so every panel shows its content
+     in full. A capped body here is what made the bulk-scan controls unreachable. */
+  #panel-scanner > .panel-body > .panel-body-inner {
+    overflow: visible; max-height: none;
+  }
+  .table-wrap { min-height: 260px; max-height: 62vh; }
 }
 @media (max-width: 720px) {
   .deck { padding: 8px; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
-  .controls .field { width: 46%; }
+  .controls { gap: 10px; }
+  .controls .field { flex: 1 1 42%; width: auto; }
+  .controls #run { flex: 1 1 100%; margin-left: 0; }
+  .table-tools { align-items: stretch; }
+  .table-tools input[type="text"] { flex: 1 1 100%; }
+  .table-tools .field { flex: 1 1 46%; }
+  .table-tools #country-filter { flex: 1 1 auto; max-width: none; }
+  .head-actions { flex-wrap: wrap; justify-content: flex-end; }
   .focus-frame { width: 100%; height: 96vh; }
   .clock { display: none; }
 }
@@ -4935,6 +5120,51 @@ textarea.targets { min-height: 78px; }
 .reco-body { font-size: 11.5px; line-height: 1.5; color: var(--dim-2); margin-top: 5px; white-space: pre-wrap; }
 .stab-item .meta.geo { color: var(--dim); }
 .stab-item .meta.geo.pending { font-style: italic; opacity: .7; }
+
+/* ---------- pre-scan filters + country pickers ---------- */
+.prescan, .ai-helper {
+  border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.02);
+}
+.prescan > summary, .ai-helper > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink);
+}
+.prescan > summary::-webkit-details-marker, .ai-helper > summary::-webkit-details-marker { display: none; }
+.prescan > summary::before, .ai-helper > summary::before {
+  content: "▸"; color: var(--dim-2); font-size: 11px; transition: transform 0.15s;
+}
+.prescan[open] > summary::before, .ai-helper[open] > summary::before { transform: rotate(90deg); }
+.ps-note { font-weight: 400; font-size: 11px; color: var(--dim-2); margin-left: auto; text-align: right; }
+.prescan[open] > summary, .ai-helper[open] > summary { border-bottom: 1px solid var(--line); }
+.ps-grid { display: flex; flex-wrap: wrap; gap: 10px 12px; padding: 10px 12px 4px; }
+.ps-grid .field { flex: 1 1 220px; min-width: 0; }
+.ps-grid input[type="text"] { width: 100%; }
+.country-pick { display: flex; gap: 6px; align-items: stretch; }
+.country-pick .sel, .country-pick input { flex: 1 1 auto; min-width: 0; }
+.country-pick .tiny { flex: 0 0 auto; padding: 0 9px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 10px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px;
+  padding: 3px 6px 3px 9px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: rgba(255,255,255,0.04); color: var(--ink);
+}
+.chip button {
+  border: 0; background: transparent; color: var(--dim-2); cursor: pointer; font-size: 13px;
+  line-height: 1; padding: 0 2px;
+}
+.chip button:hover { color: var(--pink); }
+.prescan .hint { padding: 0 12px 10px; margin: 0; }
+
+/* ---------- AI helper ---------- */
+.ai-helper-body { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.quick-asks { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn {
+  font-size: 11.5px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line-2); background: rgba(255,255,255,0.03); color: var(--dim);
+}
+.chip-btn:hover { color: var(--ink); border-color: var(--acc); }
+.ai-helper .outbox { min-height: 64px; max-height: 340px; }
+#ai-helper-status { margin-left: auto; }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -4951,6 +5181,8 @@ _WEB_APP_JS = r"""/* ===========================================================
   };
   const fmt = (v, unit = "ms", digits = 1) =>
     v == null ? "—" : `${Number(v).toFixed(digits)}${unit}`;
+  const esc = (s) => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Shared across features so the AI can see what the other panels found.
   let lastMtuIntel = null;
@@ -5542,19 +5774,125 @@ _WEB_APP_JS = r"""/* ===========================================================
     // A plain manual scan. The auto-test drives its own scans with silent:true, so
     // reaching here means this is a user-initiated run.
     ranSomething = true;
-    const p = runScan();
-    if (p && p.then) p.then(() => {
-      if (!auto.running && !auto.bg) {
-        autoClearStability("scan finished");
-        refreshStabilitySoon();
+    const wanted = parseTargets();
+    if (!wanted.length) { progressText.textContent = "add a target first"; return; }
+    runBtn.disabled = true;
+    runBtn.querySelector(".run-label").textContent = "FILTERING…";
+    applyPreScanFilters(wanted).then(({ targets, note }) => {
+      runBtn.disabled = false;
+      runBtn.querySelector(".run-label").textContent = "RUN SCAN";
+      if (!targets.length) {
+        progressText.textContent = note
+          ? `no targets match the pre-scan filters (${note})`
+          : "no targets match the pre-scan filters";
+        return;
       }
+      const p = runScan({ targets });
+      if (p && p.then) p.then(() => {
+        if (!auto.running && !auto.bg) {
+          autoClearStability("scan finished");
+          refreshStabilitySoon();
+        }
+      });
     });
   });
+  /* ============================================================
+     PRE-SCAN FILTERS  (country-only, IP range) + country picker
+     ============================================================ */
+  const scanCountries = new Set();      // selected country codes, e.g. {"DE"}
+  let countryNames = {};                // code -> name, from the server
+
+  async function loadCountries() {
+    try {
+      const r = await getJSON("/api/countries");
+      const list = r.countries || [];
+      countryNames = Object.fromEntries(list.map((c) => [c.code, c.name]));
+      const sel = $("scan-country");
+      const dl = $("country-options");
+      if (sel) {
+        sel.innerHTML = '<option value="">any country</option>' +
+          list.map((c) => `<option value="${c.code}">${esc(c.name)} (${c.code})</option>`).join("");
+      }
+      if (dl) {
+        dl.innerHTML = list.map((c) => `<option value="${c.code}">${esc(c.name)}</option>`).join("");
+      }
+    } catch {}
+  }
+
+  function renderCountryChips() {
+    const box = $("scan-country-chips");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!scanCountries.size) {
+      box.appendChild(el("span", "ps-note", "no country filter — every country is scanned"));
+      return;
+    }
+    [...scanCountries].sort().forEach((cc) => {
+      const chip = el("span", "chip", `${esc(countryNames[cc] || cc)} (${cc})`);
+      const x = el("button", null, "×");
+      x.type = "button";
+      x.title = "remove";
+      x.addEventListener("click", () => { scanCountries.delete(cc); renderCountryChips(); });
+      chip.appendChild(x);
+      box.appendChild(chip);
+    });
+  }
+
+  if ($("scan-country-add")) $("scan-country-add").addEventListener("click", () => {
+    const cc = ($("scan-country") && $("scan-country").value) || "";
+    if (!cc) return;
+    scanCountries.add(cc);
+    renderCountryChips();
+    $("scan-country").value = "";
+  });
+  if ($("scan-country")) $("scan-country").addEventListener("change", () => {
+    const cc = $("scan-country").value;
+    if (cc) { scanCountries.add(cc); renderCountryChips(); $("scan-country").value = ""; }
+  });
+  loadCountries().then(renderCountryChips);
+
+  // Ask the server which targets survive the filters. The range filter is local
+  // and instant; the country filter needs a geo lookup, so this is the slow step
+  // and only runs when a country filter is actually set.
+  async function applyPreScanFilters(targets) {
+    const cidrs = ($("scan-range") && $("scan-range").value.trim()) || "";
+    const countries = [...scanCountries];
+    if (!cidrs && !countries.length) return { targets, note: "" };
+    const note = $("prescan-note");
+    const before = targets.length;
+    if (note) note.textContent = countries.length
+      ? `filtering ${before} targets…` : "applying range filter…";
+    try {
+      const r = await post("/api/scan/filter", { targets, countries, cidrs });
+      const kept = r.targets || [];
+      const bits = [];
+      if (r.dropped_range) bits.push(`${r.dropped_range} outside range`);
+      if (r.dropped_country) bits.push(`${r.dropped_country} in other countries`);
+      const summary = `${kept.length}/${before} kept` + (bits.length ? ` (${bits.join(", ")})` : "");
+      if (note) note.textContent = summary;
+      return { targets: kept, note: summary, geo: r.geo || {} };
+    } catch (e) {
+      if (note) note.textContent = "filter failed — scanning all";
+      return { targets, note: "" };
+    }
+  }
+
   $("clear-targets").addEventListener("click", () => { targetsBox.value = ""; targetsBox.focus(); });
   $("filter").addEventListener("input", renderResults);
   $("only-ok").addEventListener("change", renderResults);
   if ($("sort-by")) $("sort-by").addEventListener("change", renderResults);
   if ($("country-filter")) $("country-filter").addEventListener("input", renderResults);
+  // The ▾ button focuses the field and pops the country datalist, so the user can
+  // pick from the list instead of guessing ISO codes.
+  if ($("country-filter-pick")) $("country-filter-pick").addEventListener("click", () => {
+    const inp = $("country-filter");
+    if (!inp) return;
+    inp.focus();
+    if (typeof inp.showPicker === "function") {
+      try { inp.showPicker(); return; } catch {}
+    }
+    inp.dispatchEvent(new MouseEvent("mousedown"));
+  });
   targetsBox.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runScan();
   });
@@ -6469,6 +6807,83 @@ _WEB_APP_JS = r"""/* ===========================================================
     if (!lastAiAnswer) { aiOut.textContent = "nothing to export yet"; return; }
     downloadText("dns_ai_analysis.txt",
       `DNS AI analysis — ${new Date().toISOString()}\n\n${lastAiAnswer}\n`);
+  });
+
+  /* ============================================================
+     AI HELPER (inline, right under the scan results)
+     Same OpenRouter plumbing as the AI Analysis panel, but it lives where the
+     results are so the user can ask about them without switching panels.
+     ============================================================ */
+  let lastHelperAnswer = "";
+
+  function helperKey() {
+    const inline = ($("ai-key") && $("ai-key").value.trim()) || "";
+    return inline || localStorage.getItem("openrouter_key") || "";
+  }
+  function helperModel() {
+    return ($("ai-model") && $("ai-model").value.trim()) ||
+      localStorage.getItem("openrouter_model") || "openai/gpt-4o-mini";
+  }
+  function helperStatus(msg) {
+    const st = $("ai-helper-status");
+    if (st) st.textContent = msg || "";
+  }
+
+  async function askHelper(question) {
+    const out = $("ai-helper-out");
+    if (!out) return;
+    if (!rows.length) {
+      out.innerHTML = `<span class="err">Run a scan first — the helper answers about your results.</span>`;
+      return;
+    }
+    const key = helperKey();
+    if (!key) {
+      out.innerHTML = `<span class="err">No OpenRouter key set.</span> ` +
+        `Add one in the <strong>AI Analysis</strong> panel (it stays in this browser), then ask again.`;
+      return;
+    }
+    const q = question || ($("ai-helper-q") && $("ai-helper-q").value.trim()) || "";
+    out.textContent = "thinking…";
+    helperStatus("contacting OpenRouter…");
+    try {
+      const payload = {
+        api_key: key, model: helperModel(),
+        results: rows.filter((r) => r.status === "ok"),
+        context: aiContext(),
+        prompt: (q || "Analyse these DNS results and tell me the single best choice and why.") +
+          "\n\nAnswer for a non-expert: plain language, short lines, no jargon without a quick explanation.",
+      };
+      const r = await post("/api/ai/analyze", payload);
+      if (r.error) {
+        out.innerHTML = `<span class="err">${esc(r.error)}</span>` +
+          (r.hint ? `\n<span class="ok">Tip: ${esc(r.hint)}</span>` : "");
+        helperStatus("");
+        return;
+      }
+      lastHelperAnswer = r.analysis || "";
+      out.innerHTML = mdLite(lastHelperAnswer || "(empty response)") +
+        (r.model ? `\n\n— ${esc(r.model)}` : "");
+      helperStatus("");
+    } catch (e) {
+      out.innerHTML = `<span class="err">request failed: ${esc(e)}</span>`;
+      helperStatus("");
+    }
+  }
+
+  if ($("ai-helper-go")) $("ai-helper-go").addEventListener("click", () => askHelper());
+  if ($("ai-helper-q")) $("ai-helper-q").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") askHelper();
+  });
+  document.querySelectorAll(".quick-asks .chip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const q = btn.getAttribute("data-q") || "";
+      if ($("ai-helper-q")) $("ai-helper-q").value = q;
+      askHelper(q);
+    });
+  });
+  if ($("ai-helper-copy")) $("ai-helper-copy").addEventListener("click", (e) => {
+    if (!lastHelperAnswer) { helperStatus("nothing to copy yet"); return; }
+    copyText(lastHelperAnswer, e.currentTarget);
   });
 
   /* ============================================================
@@ -8272,7 +8687,7 @@ class _ClientGone(Exception):
 
 
 class WebConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "DnsConsole/4.1"
+    server_version = "DnsConsole/4.2"
 
     def log_message(self, *args):  # keep the console quiet
         pass
@@ -8329,7 +8744,7 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
         elif route == "/api/health":
-            self._send_json({"ok": True, "service": "dns-console", "version": "4.1"})
+            self._send_json({"ok": True, "service": "dns-console", "version": "4.2"})
         elif route == "/api/dns-list":
             self._send_json({"list": load_dns_list()})
         elif route == "/api/stability":
@@ -8385,6 +8800,8 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             with _LOG_LOCK:
                 total = _LOG_SEQ
             self._send_json({"lines": lines, "last": total, "count": len(lines)})
+        elif route == "/api/countries":
+            self._send_json({"countries": _web_country_list()})
         elif route == "/api/geo":
             ips = []
             for raw in query.get("ips", [""])[0].split(","):
@@ -8501,6 +8918,23 @@ class WebConsoleHandler(BaseHTTPRequestHandler):
             self._post_ai_analyze(body)
         elif route == "/api/ai/game-plan":
             self._post_ai_game_plan(body)
+        elif route == "/api/scan/filter":
+            targets = body.get("targets")
+            if not isinstance(targets, list):
+                targets = []
+            countries = body.get("countries")
+            if isinstance(countries, str):
+                countries = [countries]
+            if not isinstance(countries, list):
+                countries = []
+            cidrs = body.get("cidrs") or body.get("range") or ""
+            try:
+                workers = max(1, min(64, int(body.get("workers") or 24)))
+            except (TypeError, ValueError):
+                workers = 24
+            res = _filter_targets(targets, countries=countries, cidrs=cidrs,
+                                  workers=workers)
+            self._send_json(res)
         elif route == "/api/pairs":
             rows = body.get("rows")
             if not isinstance(rows, list):
