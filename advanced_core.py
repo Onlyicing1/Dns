@@ -5220,8 +5220,13 @@ textarea.targets { min-height: 78px; }
 
 body { background: var(--ground); }
 
-/* ambient motifs: soft stage-violet washes instead of neon orbs */
-.bg-orb { opacity: 0.5; filter: blur(46px); }
+/* ambient motifs: soft stage-violet washes instead of neon orbs.
+   Deliberately NO blur() here. The base stylesheet already documents this:
+   Android WebView rasterizes filter: blur in software and re-blurs the whole
+   layer on every repaint (scanning and the auto-test countdown invalidate it
+   constantly), which saturates the renderer thread -- Android then reports the
+   app as not responding. The radial-gradient fade already reads as soft. */
+.bg-orb { opacity: 0.42; }
 .bg-orb.o1 { background: radial-gradient(circle, var(--stage), transparent 70%); }
 .bg-orb.o2 { background: radial-gradient(circle, var(--tone-violet-c), transparent 70%); }
 .bg-grid { opacity: 0.5; }
@@ -5410,6 +5415,52 @@ input:focus, textarea:focus, .sel:focus {
 .modal-card { border-radius: 26px; }
 .prescan, .ai-helper { border-radius: 20px; }
 
+
+/* ============================================================
+   FIXES
+   ============================================================ */
+
+/* --- 1. Fullscreen (focus) scroll ------------------------------------------
+   Below 1080px the stacked rule sets the scanner body to overflow:visible so
+   the page can scroll. In the focus overlay the page cannot scroll, so the
+   body overflowed its panel and nothing moved -- the panel's overflow:hidden
+   clipped it and the inner was not a scroller. Re-arm the inner as the
+   scroller for exactly this combination. */
+@media (max-width: 1080px) {
+  .focus-slot > #panel-scanner > .panel-body > .panel-body-inner {
+    overflow-y: auto; max-height: none;
+  }
+  .focus-slot .table-wrap { max-height: none; }
+}
+
+/* --- 2. Smoothness ---------------------------------------------------------
+   Everything below is a rendering-cost fix: the page repaints on every scroll
+   frame, so any layer that must be re-rasterised shows up as lag.
+   `contain: paint` stops a card from re-rasterising its siblings when it
+   animates or changes, and the background motif is made cheap to paint. */
+.panel, .rail > .panel, .drawer, .modal-card { contain: paint; }
+.panel.flash { will-change: box-shadow; }
+.bg-layer { contain: strict; }
+.bg-grid { opacity: 0.35; }
+body.no-aurora .bg-orb { display: none; }
+body.no-grid .bg-grid { display: none; }
+body.no-scanlines .bg-layer::before { display: none; }
+body.no-sparkles .bg-layer::after { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .focus-frame { animation: none; }
+  .panel.flash { animation: none; }
+}
+
+/* --- 3. Header controls get their own hit box ------------------------------
+   The header toggles collapse on click. Action buttons were only spared when
+   they sat inside .head-actions; six panels had their action button as a bare
+   child of the header, so pressing it also collapsed the card. Now any
+   interactive element in a header is left alone. */
+.panel-head { cursor: pointer; }
+.panel-head button, .panel-head a, .panel-head select, .panel-head input,
+.panel-head label, .panel-head summary { cursor: pointer; }
+.head-actions, .head-tools, .panel-head h2 { cursor: pointer; }
+.head-actions .btn, .head-tools .ico-btn { position: relative; z-index: 2; }
 """
 _WEB_APP_JS = r"""/* ============================================================
    NEXUS DNS — front-end logic (vanilla, no build step)
@@ -5560,10 +5611,13 @@ _WEB_APP_JS = r"""/* ===========================================================
   });
 
   // Click behaviour: the header toggles open/closed; a collapsed card is a big
-  // tile, so clicking anywhere on it opens it. Action buttons are left alone.
+  // tile, so clicking anywhere on it opens it. Any control living in the header
+  // keeps its own hit box -- pressing an action button must not also collapse
+  // the card, whether it sits in .head-actions or directly in the header.
+  const HEAD_CONTROL = "button, a, select, input, textarea, label, summary, [role='button'], [contenteditable='true']";
   dockPanels.forEach((panel) => {
     panel.addEventListener("click", (e) => {
-      if (e.target.closest(".head-actions") || e.target.closest(".head-tools")) return;
+      if (e.target.closest(HEAD_CONTROL)) return;
       if (e.target.closest(".panel-head")) { togglePanel(panel); return; }
       if (panel.classList.contains("collapsed")) togglePanel(panel, false);
     });
